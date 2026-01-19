@@ -3,7 +3,7 @@ local LP = Players.LocalPlayer
 local RS = game:GetService("RunService")
 local Tab = _G.Tabs.Player
 
--- 1. НАСТРОЙКИ СКОРОСТИ (Speed)
+-- 1. СКОРОСТЬ (WalkSpeed)
 Tab:AddSlider("SpeedSlider", {
     Title = "WalkSpeed",
     Default = 16,
@@ -13,7 +13,7 @@ Tab:AddSlider("SpeedSlider", {
     Callback = function(v) _G.Config.Speed = v end
 })
 
--- 2. НАСТРОЙКИ ПРЫЖКА (Jump)
+-- 2. ПРЫЖОК (JumpPower)
 Tab:AddSlider("JumpSlider", {
     Title = "JumpPower",
     Default = 50,
@@ -23,17 +23,17 @@ Tab:AddSlider("JumpSlider", {
     Callback = function(v) _G.Config.Jump = v end
 })
 
--- 3. NOCLIP (Проход сквозь стены)
+-- 3. СКВОЗЬ СТЕНЫ (Noclip)
 Tab:AddToggle("NoclipToggle", {Title = "Noclip", Default = false}):OnChanged(function(v)
     _G.Config.Noclip = v
 end)
 
--- 4. ANTI-FLING (Защита от толкания и раскрутки)
+-- 4. АНТИ-ТОЛКАНИЕ (Anti-Fling)
 Tab:AddToggle("AntiFlingToggle", {Title = "Anti-Fling", Default = false}):OnChanged(function(v)
     _G.Config.AntiFling = v
 end)
 
--- ГЛАВНЫЙ ЦИКЛ ОБРАБОТКИ (Без X-Ray)
+-- ГЛАВНЫЙ ЦИКЛ ОБРАБОТКИ
 RS.Stepped:Connect(function()
     pcall(function()
         if LP.Character then
@@ -41,14 +41,15 @@ RS.Stepped:Connect(function()
             local root = LP.Character:FindFirstChild("HumanoidRootPart")
 
             if hum then
-                -- Применение Speed и Jump
+                -- Применяем настройки скорости и прыжка
                 hum.WalkSpeed = _G.Config.Speed or 16
                 hum.JumpPower = _G.Config.Jump or 50
-                hum.UseJumpPower = true
+                hum.UseJumpPower = true -- Обязательно для MM2
             end
 
             if root then
-                -- Логика Noclip (Отключаем коллизию персонажа)
+                -- NOCLIP: Отключаем коллизию только у твоего персонажа
+                -- Это НЕ создает белых блоков на карте, так как не трогает workspace
                 if _G.Config.Noclip then
                     for _, part in pairs(LP.Character:GetDescendants()) do
                         if part:IsA("BasePart") then
@@ -57,22 +58,10 @@ RS.Stepped:Connect(function()
                     end
                 end
 
-                -- Логика Anti-Fling
+                -- ANTI-FLING: Защита от раскрутки
                 if _G.Config.AntiFling then
-                    -- Обнуляем физические силы, которые могут заставить персонажа летать
                     root.Velocity = Vector3.new(0, 0, 0)
                     root.RotVelocity = Vector3.new(0, 0, 0)
-                    
-                    -- Отключаем коллизию с другими игроками, чтобы они не могли вас толкнуть
-                    for _, p in pairs(Players:GetPlayers()) do
-                        if p ~= LP and p.Character then
-                            for _, pPart in pairs(p.Character:GetChildren()) do
-                                if pPart:IsA("BasePart") then
-                                    pPart.CanCollide = false
-                                end
-                            end
-                        end
-                    end
                 end
             end
         end
