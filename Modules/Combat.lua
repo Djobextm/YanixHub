@@ -12,31 +12,31 @@ for i = 1, 15 do
 end
 
 if not Tab then
-    warn("YanixHub: Вкладка 'Main' не найдена! Проверь UI.lua")
+    warn("YanixHub: Вкладка не найдена!")
     return false
 end
 
--- Инициализация конфига
 _G.Config = _G.Config or {}
 _G.Config.SilentAim = false
 _G.Config.KillAura = false
 
--- Поиск Мардера для Silent Aim
+-- Функция поиска Мардера (нацеливание на ТЕЛО)
 local function GetMurderer()
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            if p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife") then
-                return p.Character.HumanoidRootPart
+            -- Проверяем наличие ножа
+            local hasKnife = p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife")
+            if hasKnife then
+                return p.Character.HumanoidRootPart -- Возвращаем туловище
             end
         end
     end
     return nil
 end
 
--- Поиск ближайшего игрока для Kill Aura (дистанция 15 studs)
+-- Поиск цели для Kill Aura (дистанция 15)
 local function GetClosestPlayer()
-    local target = nil
-    local lastDist = 15
+    local target, lastDist = nil, 15
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
             local dist = (LP.Character.HumanoidRootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude
@@ -50,53 +50,39 @@ local function GetClosestPlayer()
 end
 
 -- --- ИНТЕРФЕЙС ---
+Tab:AddToggle("SilentAim", {Title = "Silent Aim (Body Target)", Default = false}):OnChanged(function(v) _G.Config.SilentAim = v end)
+Tab:AddToggle("KillAura", {Title = "Kill Aura (Murderer)", Default = false}):OnChanged(function(v) _G.Config.KillAura = v end)
 
-Tab:AddToggle("SilentAim", {
-    Title = "Silent Aim (Target: Murderer)", 
-    Default = false
-}):OnChanged(function(v)
-    _G.Config.SilentAim = v
-end)
-
-Tab:AddToggle("KillAura", {
-    Title = "Kill Aura (Murderer Mode)", 
-    Default = false
-}):OnChanged(function(v)
-    _G.Config.KillAura = v
-end)
-
--- --- ЛОГИКА ---
-
--- 1. Silent Aim (Проброс выстрела в Мардера)
+-- --- ULTIMATE SILENT AIM ---
 local oldNamecall
 oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
-    if tostring(self) == "ShootGun" and method == "FireServer" and _G.Config.SilentAim then
-        local target = GetMurderer()
-        if target then
-            args[1] = target.Position
+
+    -- Перехватываем событие ShootGun
+    if _G.Config.SilentAim and tostring(self) == "ShootGun" and method == "FireServer" then
+        local targetPart = GetMurderer()
+        if targetPart then
+            -- Направляем пулю строго в центр тела Мардера
+            args[1] = targetPart.Position
             return oldNamecall(self, unpack(args))
         end
     end
+
     return oldNamecall(self, ...)
 end)
 
--- 2. Kill Aura (Авто-атака ножом)
+-- --- KILL AURA ---
 task.spawn(function()
     while task.wait(0.1) do
         if _G.Config.KillAura and LP.Character then
-            -- Ищем нож в руках
             local knife = LP.Character:FindFirstChild("Knife")
             if knife and knife:IsA("Tool") then
                 local target = GetClosestPlayer()
                 if target then
                     knife:Activate()
-                    -- Удаленный вызов для регистрации урона
                     local slash = knife:FindFirstChild("Slash") or knife:FindFirstChild("Stab")
-                    if slash then
-                        slash:FireServer(target.HumanoidRootPart.Position)
-                    end
+                    if slash then slash:FireServer(target.HumanoidRootPart.Position) end
                 end
             end
         end
