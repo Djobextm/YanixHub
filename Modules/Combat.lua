@@ -1,10 +1,10 @@
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 
--- Настройки Prediction (Предсказание движения)
+-- Настройки Prediction
 local PredictionAmount = 0.165 
 
--- Ожидание вкладки 'Main' из вашего UI.lua
+-- Ожидание вкладки 'Main' из UI.lua
 local Tab = nil
 for i = 1, 15 do
     if _G.Tabs and _G.Tabs.Main then
@@ -15,20 +15,19 @@ for i = 1, 15 do
 end
 
 if not Tab then
-    warn("YanixHub: Вкладка 'Main' не найдена! Проверьте UI.lua")
+    warn("YanixHub: Вкладка 'Main' не найдена!")
     return false
 end
 
--- Инициализация настроек
+-- Инициализация конфига
 _G.Config = _G.Config or {}
 _G.Config.SilentAim = false
 _G.Config.SilentAimButton = false
 
--- Функция поиска Мардера и расчета точки (Тело + Prediction)
+-- Функция расчета точки (Тело + Prediction)
 local function GetPredictTarget()
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            -- Мардер — это игрок с ножом
             local hasKnife = p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife")
             if hasKnife then
                 local root = p.Character.HumanoidRootPart
@@ -39,7 +38,7 @@ local function GetPredictTarget()
     return nil
 end
 
--- Функция для мгновенного выстрела (для кнопки)
+-- Функция для выстрела (используется кнопкой)
 local function ShootMurderer()
     local gun = LP.Character:FindFirstChild("Gun") or LP.Backpack:FindFirstChild("Gun")
     if gun then
@@ -64,10 +63,10 @@ AimBtn.Size = UDim2.new(0, 130, 0, 45)
 AimBtn.Position = UDim2.new(0.5, -65, 0.8, 0)
 AimBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 AimBtn.Text = "SHOOT MURDERER"
-AimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AimBtn.TextColor3 = Color3.new(1, 1, 1)
 AimBtn.Font = Enum.Font.SourceSansBold
 AimBtn.TextSize = 14
-AimBtn.Draggable = true 
+AimBtn.Draggable = true
 AimBtn.Active = true
 AimBtn.Visible = false 
 
@@ -79,26 +78,28 @@ UIStroke.Thickness = 2
 
 AimBtn.MouseButton1Click:Connect(ShootMurderer)
 
--- --- ИНТЕРФЕЙС В МЕНЮ (РАЗДЕЛЬНО) ---
+-- --- ИНТЕРФЕЙС В МЕНЮ ---
 
--- 1. Только пассивный Silent Aim (улучшает ваши обычные выстрелы)
+-- 1. Пассивный Silent Aim (для обычных выстрелов)
 Tab:AddToggle("SilentAim", {
-    Title = "Silent Aim (Prediction)", 
+    Title = "Silent Aim (Passive)", 
     Default = false
 }):OnChanged(function(v) 
     _G.Config.SilentAim = v 
 end)
 
--- 2. Только экранная кнопка (позволяет стрелять нажатием на кнопку)
-Tab:AddToggle("SilentAimBtn", {
-    Title = "Silent Aim Screen Button", 
+-- 2. Отдельная функция для экранной кнопки
+Tab:AddToggle("SilentAimBtnToggle", {
+    Title = "Silent Aim Button (Screen)", 
     Default = false
 }):OnChanged(function(v) 
-    _G.Config.SilentAimButton = v 
-    AimBtn.Visible = v 
+    _G.Config.SilentAimButton = v
+    AimBtn.Visible = v -- Кнопка зависит только от этого тумблера
 end)
 
--- --- ЛОГИКА SILENT AIM ---
+-- --- ЛОГИКА ---
+
+-- Логика пассивного Silent Aim (только если включен SilentAim)
 local oldNamecall
 oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
