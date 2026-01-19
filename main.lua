@@ -19,6 +19,7 @@ end
 local Window = LoadModule("UI")
 LoadModule("Visuals")
 LoadModule("Combat")
+LoadModule("Misc")
 LoadModule("Player")
 LoadModule("Farm")
 
