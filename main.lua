@@ -1,5 +1,5 @@
 -- [[ YanixHub | Main Loader ]]
-local BaseURL = "https://raw.githubusercontent.com/ТВОЙ_НИК/YanixHub/main/" -- ЗАМЕНИ ТВОЙ_НИК
+local BaseURL = "https://raw.githubusercontent.com/Djobextm/YanixHub/main/" -- ЗАМЕНИ ТВОЙ_НИК
 
 _G.Config = {
     Speed = 16, Jump = 50, SilentAim = false, 
