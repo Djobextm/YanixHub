@@ -21,19 +21,28 @@ end
 _G.Config = _G.Config or {}
 _G.Config.ShowRoundTimer = false
 
--- --- СОЗДАНИЕ ТАЙМЕРА (GUI) ---
-local TimerGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
-TimerGui.Name = "YanixTimerGui"
+-- --- СОЗДАНИЕ GUI ТАЙМЕРА (CoreGui) ---
+-- Удаляем старый, если остался от прошлых запусков
+if game:GetService("CoreGui"):FindFirstChild("YanixTimerSystem") then
+    game:GetService("CoreGui").YanixTimerSystem:Destroy()
+end
 
-local TimerLabel = Instance.new("TextLabel", TimerGui)
-TimerLabel.Name = "RoundTimer"
+local TimerGui = Instance.new("ScreenGui")
+TimerGui.Name = "YanixTimerSystem"
+TimerGui.Parent = game:GetService("CoreGui")
+TimerGui.DisplayOrder = 999
+TimerGui.ResetOnSpawn = false
+
+local TimerLabel = Instance.new("TextLabel")
+TimerLabel.Parent = TimerGui
 TimerLabel.Size = UDim2.new(0, 160, 0, 35)
-TimerLabel.Position = UDim2.new(0.5, -80, 0, 15) -- Сверху по центру
+TimerLabel.Position = UDim2.new(0.5, -80, 0, 45) -- По центру сверху
 TimerLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-TimerLabel.BackgroundTransparency = 0.3
+TimerLabel.BackgroundTransparency = 0.2
 TimerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 TimerLabel.Font = Enum.Font.GothamBold
 TimerLabel.TextSize = 16
+TimerLabel.Text = "⏱️ Loading..."
 TimerLabel.Visible = false
 
 local UICorner = Instance.new("UICorner", TimerLabel)
@@ -42,48 +51,94 @@ UICorner.CornerRadius = UDim.new(0, 10)
 local UIStroke = Instance.new("UIStroke", TimerLabel)
 UIStroke.Color = Color3.fromRGB(255, 255, 255)
 UIStroke.Thickness = 1.5
-UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
--- --- ЛОГИКА ОБНОВЛЕНИЯ ТАЙМЕРА ---
-RunService.RenderStepped:Connect(function()
-    if _G.Config.ShowRoundTimer then
-        -- MM2 хранит время в StringValue внутри ReplicatedStorage
-        local timerObj = ReplicatedStorage:FindFirstChild("Timer", true)
-        if timerObj and timerObj:IsA("StringValue") then
-            local timeText = timerObj.Value
-            if timeText ~= "" then
-                TimerLabel.Text = "⏱️ Time: " .. timeText
-                TimerLabel.Visible = true
-            else
-                TimerLabel.Text = "Waiting for Round..."
-                TimerLabel.Visible = true
-            end
+-- --- ЛОГИКА ПОИСКА ТАЙМЕРА MM2 ---
+local function UpdateTimer()
+    if not _G.Config.ShowRoundTimer then 
+        TimerLabel.Visible = false
+        return 
+    end
+
+    -- Поиск объекта таймера. В MM2 это обычно StringValue с именем 'Timer'
+    local timerObj = ReplicatedStorage:FindFirstChild("Timer", true)
+    
+    if timerObj then
+        local value = ""
+        if timerObj:IsA("StringValue") then
+            value = timerObj.Value
+        elseif timerObj:IsA("TextLabel") then
+            value = timerObj.Text
+        end
+
+        if value ~= "" then
+            TimerLabel.Text = "⏱️ " .. value
+            TimerLabel.Visible = true
         else
-            TimerLabel.Visible = false
+            TimerLabel.Text = "⏱️ Waiting..."
+            TimerLabel.Visible = true
         end
     else
-        TimerLabel.Visible = false
+        -- Если объект еще не создан сервером
+        TimerLabel.Text = "⏱️ Intermission"
+        TimerLabel.Visible = true
+    end
+end
+
+-- Обновление каждую секунду (для экономии ресурсов)
+task.spawn(function()
+    while true do
+        UpdateTimer()
+        task.wait(0.5)
     end
 end)
 
--- --- ИНТЕРФЕЙС (Fluent) ---
-Tab:AddToggle("RoundTimerToggle", {
+-- --- ИНТЕРФЕЙС FLUENT ---
+
+Tab:AddParagraph({
+    Title = "Полезные функции",
+    Content = "Различные настройки игрового процесса"
+})
+
+local TimerToggle = Tab:AddToggle("RoundTimerToggle", {
     Title = "Show Round Timer",
-    Description = "Отображает время раунда вверху экрана",
+    Description = "Показывает время раунда вверху экрана",
     Default = false
-}):OnChanged(function(v)
-    _G.Config.ShowRoundTimer = v
+})
+
+TimerToggle:OnChanged(function()
+    _G.Config.ShowRoundTimer = TimerToggle.Value
+    TimerLabel.Visible = TimerToggle.Value
 end)
 
--- Дополнительная полезная функция для Misc (например, FullBright)
+Tab:AddSection("Окружение")
+
 Tab:AddButton({
     Title = "FullBright",
-    Description = "Убирает тени и делает всё ярким",
+    Description = "Максимальная яркость (убирает темноту)",
     Callback = function()
-        game:GetService("Lighting").Brightness = 2
-        game:GetService("Lighting").ClockTime = 14
-        game:GetService("Lighting").FogEnd = 100000
-        game:GetService("Lighting").GlobalShadows = false
+        local Lighting = game:GetService("Lighting")
+        Lighting.Brightness = 2
+        Lighting.ClockTime = 14
+        Lighting.FogEnd = 100000
+        Lighting.GlobalShadows = false
+        
+        for _, v in pairs(Lighting:GetChildren()) do
+            if v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") then
+                v.Enabled = false
+            end
+        end
+    end
+})
+
+Tab:AddButton({
+    Title = "Anti-Lag",
+    Description = "Убирает визуальные эффекты для повышения FPS",
+    Callback = function()
+        for _, v in pairs(game:GetDescendants()) do
+            if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") then
+                v.Enabled = false
+            end
+        end
     end
 })
 
