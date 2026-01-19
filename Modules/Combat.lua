@@ -5,29 +5,26 @@ local RunService = game:GetService("RunService")
 
 local Tab = _G.Tabs.Main
 
--- ==========================================
--- ПОИСК ЦЕЛИ (ЦЕЛЬ: ТУЛОВИЩЕ / HumanoidRootPart)
--- ==========================================
-local function GetTarget(role)
+-- Функция поиска цели (Туловище + Бесконечный радиус)
+local function GetTarget()
     local target = nil
     local shortestDist = math.huge
 
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LP and p.Character then
-            -- Используем HumanoidRootPart как основную цель (туловище)
+            -- Безопасная проверка наличия HumanoidRootPart
             local root = p.Character:FindFirstChild("HumanoidRootPart")
             local hum = p.Character:FindFirstChildOfClass("Humanoid")
             
             if root and hum and hum.Health > 0 then
+                -- Проверка, является ли игрок Мардером (наличие ножа)
                 local isMur = p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife")
-                local isShr = p.Character:FindFirstChild("Gun") or p.Backpack:FindFirstChild("Gun") or 
-                               p.Character:FindFirstChild("Revolver") or p.Backpack:FindFirstChild("Revolver")
-
-                if (role == "Murderer" and isMur) or (role == "Sheriff" and isShr) then
+                
+                if isMur then
                     local dist = (LP.Character.HumanoidRootPart.Position - root.Position).Magnitude
                     if dist < shortestDist then
                         shortestDist = dist
-                        target = root -- Наводимся на RootPart
+                        target = root -- Целимся в туловище
                     end
                 end
             end
@@ -36,34 +33,35 @@ local function GetTarget(role)
     return target
 end
 
-Tab:AddToggle("SAim", {Title = "Silent Aim (Body)", Default = false}):OnChanged(function(v) _G.Config.SilentAim = v end)
+Tab:AddToggle("SAim", {Title = "Silent Aim (Body + Dist)", Default = false}):OnChanged(function(v) _G.Config.SilentAim = v end)
 Tab:AddToggle("KAura", {Title = "Kill Aura", Default = false}):OnChanged(function(v) _G.Config.KillAura = v end)
 
--- ==========================================
--- SERVER-TRUSTED INPUT MANIPULATION
--- ==========================================
+-- РЕАЛИЗАЦИЯ: Подмена Mouse.Hit (Пример 1)
 local OldIndex
 OldIndex = hookmetamethod(game, "__index", function(self, index)
-    if not checkcaller() and (index == "Hit" or index == "Target") and self == Mouse then
+    if not checkcaller() and self == Mouse and (index == "Hit" or index == "Target") then
         if _G.Config.SilentAim then
-            local t = GetTarget("Murderer")
-            if t then 
-                -- Возвращаем CFrame туловища
-                return (index == "Hit" and t.CFrame or t) 
+            local t = GetTarget()
+            if t then
+                -- Возвращаем позицию цели напрямую, обходя проверку дистанции сервера
+                return (index == "Hit" and t.CFrame or t)
             end
         end
     end
     return OldIndex(self, index)
 end)
 
--- Kill Aura
+-- Kill Aura (Через Touched - Пример 3)
 RunService.Stepped:Connect(function()
     if _G.Config.KillAura and LP.Character and LP.Character:FindFirstChild("Knife") then
-        for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                if (LP.Character.HumanoidRootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude < 16 then
-                    firetouchinterest(p.Character.HumanoidRootPart, LP.Character.Knife.Handle, 0)
-                    firetouchinterest(p.Character.HumanoidRootPart, LP.Character.Knife.Handle, 1)
+        local knife = LP.Character.Knife:FindFirstChild("Handle")
+        if knife then
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                    if (LP.Character.HumanoidRootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude < 16 then
+                        firetouchinterest(p.Character.HumanoidRootPart, knife, 0)
+                        firetouchinterest(p.Character.HumanoidRootPart, knife, 1)
+                    end
                 end
             end
         end
