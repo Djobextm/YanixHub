@@ -3,9 +3,6 @@ local LP = Players.LocalPlayer
 local RS = game:GetService("RunService")
 local Tab = _G.Tabs.Player
 
--- Хранилище для восстановления прозрачности
-local transparencyCache = {}
-
 -- 1. НАСТРОЙКИ СКОРОСТИ (Speed)
 Tab:AddSlider("SpeedSlider", {
     Title = "WalkSpeed",
@@ -26,33 +23,17 @@ Tab:AddSlider("JumpSlider", {
     Callback = function(v) _G.Config.Jump = v end
 })
 
--- 3. X-RAY (Просвечивание стен без багов моделей)
-Tab:AddToggle("XRayToggle", {Title = "X-Ray", Default = false}):OnChanged(function(v)
-    _G.Config.XRay = v
-    for _, obj in pairs(workspace:GetDescendants()) do
-        -- Обрабатываем только обычные детали (Part), чтобы не было белых кубов на месте мешей
-        if obj:IsA("Part") and not obj:IsDescendantOf(LP.Character) then
-            if v then
-                if not transparencyCache[obj] then transparencyCache[obj] = obj.Transparency end
-                obj.Transparency = 0.5
-            else
-                obj.Transparency = transparencyCache[obj] or 0
-            end
-        end
-    end
-end)
-
--- 4. NOCLIP (Проход сквозь стены)
+-- 3. NOCLIP (Проход сквозь стены)
 Tab:AddToggle("NoclipToggle", {Title = "Noclip", Default = false}):OnChanged(function(v)
     _G.Config.Noclip = v
 end)
 
--- 5. ANTI-FLING (Защита от толкания и раскрутки)
+-- 4. ANTI-FLING (Защита от толкания и раскрутки)
 Tab:AddToggle("AntiFlingToggle", {Title = "Anti-Fling", Default = false}):OnChanged(function(v)
     _G.Config.AntiFling = v
 end)
 
--- ГЛАВНЫЙ ЦИКЛ ОБРАБОТКИ
+-- ГЛАВНЫЙ ЦИКЛ ОБРАБОТКИ (Без X-Ray)
 RS.Stepped:Connect(function()
     pcall(function()
         if LP.Character then
@@ -67,7 +48,7 @@ RS.Stepped:Connect(function()
             end
 
             if root then
-                -- Логика Noclip
+                -- Логика Noclip (Отключаем коллизию персонажа)
                 if _G.Config.Noclip then
                     for _, part in pairs(LP.Character:GetDescendants()) do
                         if part:IsA("BasePart") then
@@ -78,9 +59,11 @@ RS.Stepped:Connect(function()
 
                 -- Логика Anti-Fling
                 if _G.Config.AntiFling then
+                    -- Обнуляем физические силы, которые могут заставить персонажа летать
                     root.Velocity = Vector3.new(0, 0, 0)
                     root.RotVelocity = Vector3.new(0, 0, 0)
-                    -- Отключаем коллизию с другими игроками для предотвращения флинга
+                    
+                    -- Отключаем коллизию с другими игроками, чтобы они не могли вас толкнуть
                     for _, p in pairs(Players:GetPlayers()) do
                         if p ~= LP and p.Character then
                             for _, pPart in pairs(p.Character:GetChildren()) do
