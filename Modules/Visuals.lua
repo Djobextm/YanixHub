@@ -1,97 +1,75 @@
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local LP = Players.LocalPlayer
+local RunService = game:GetService("RunService")
 
-local RoleColors = {
-    Murderer = Color3.fromRGB(255, 0, 0),
-    Sheriff = Color3.fromRGB(0, 0, 255),
-    Hero = Color3.fromRGB(255, 255, 0),
-    Innocent = Color3.fromRGB(0, 255, 0),
-    Gun = Color3.fromRGB(0, 255, 255)
-}
+local Tab = _G.Tabs.Visuals
+local ESP_Objects = {} -- Таблица для хранения созданных объектов
 
--- Функции очистки (чтобы не было дублей и лагов)
-local function CleanESP(char)
-    if char:FindFirstChild("P_E") then char.P_E:Destroy() end
-    if char:FindFirstChild("Head") and char.Head:FindFirstChild("P_T") then char.Head.P_T:Destroy() end
+-- Параметры оптимизации
+local UpdateRate = 0.1 -- Обновлять раз в 0.1 сек, а не каждый кадр
+local MaxDistance = 500 -- Не рисовать ESP дальше 500 стадов
+local lastUpdate = 0
+
+-- Очистка при выключении
+local function ClearESP()
+    for _, obj in pairs(ESP_Objects) do
+        if obj then obj:Destroy() end
+    end
+    ESP_Objects = {}
 end
 
--- Основные функции визуалов
-_G.Tabs.Visuals:AddToggle("PESP", {Title = "ESP Ролей + Ники", Default = false}):OnChanged(function(v) 
+Tab:AddToggle("PESP", {Title = "Player ESP (Optimized)", Default = false}):OnChanged(function(v) 
     _G.Config.ESP = v 
-    if not v then
-        for _, p in pairs(Players:GetPlayers()) do
-            if p.Character then CleanESP(p.Character) end
-        end
-    end
+    if not v then ClearESP() end
 end)
 
-_G.Tabs.Visuals:AddToggle("GESP", {Title = "Gun ESP (Подсветка пистолета)", Default = false}):OnChanged(function(v) 
+Tab:AddToggle("GESP", {Title = "Gun ESP", Default = false}):OnChanged(function(v) 
     _G.Config.GunESP = v 
-    if not v then
-        for _, obj in pairs(workspace:GetDescendants()) do
-            if obj.Name == "G_H" then obj:Destroy() end
-        end
-    end
+    if not v then ClearESP() end
 end)
 
--- Вспомогательная функция определения роли
-local function GetPlayerRole(p)
-    if not p or not p.Character then return "Innocent" end
-    if p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife") then return "Murderer" end
-    if p.Character:FindFirstChild("Gun") or p.Backpack:FindFirstChild("Gun") then return "Sheriff" end
-    if p.Character:FindFirstChild("Revolver") or p.Backpack:FindFirstChild("Revolver") then return "Hero" end
-    return "Innocent"
-end
-
--- ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЯ
+-- Основной цикл с ограничением FPS
 RunService.Heartbeat:Connect(function()
-    -- 1. Player ESP + Ники
+    if tick() - lastUpdate < UpdateRate then return end
+    lastUpdate = tick()
+
     if _G.Config.ESP then
         for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LP and p.Character and p.Character:FindFirstChild("Head") and p.Character:FindFirstChild("HumanoidRootPart") then
-                local role = GetPlayerRole(p)
-                local color = RoleColors[role]
-                
-                -- Подсветка тела (Highlight)
-                local h = p.Character:FindFirstChild("P_E") or Instance.new("Highlight", p.Character)
-                h.Name = "P_E"
-                h.FillColor = color
-                h.OutlineColor = Color3.new(1,1,1)
-                h.FillTransparency = 0.5
+            if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local char = p.Character
+                local root = char.HumanoidRootPart
+                local dist = (LP.Character.HumanoidRootPart.Position - root.Position).Magnitude
 
-                -- Ники над головой (BillboardGui)
-                local head = p.Character.Head
-                local tag = head:FindFirstChild("P_T") or Instance.new("BillboardGui", head)
-                tag.Name = "P_T"
-                tag.Size = UDim2.new(0, 100, 0, 50)
-                tag.AlwaysOnTop = true
-                tag.ExtentsOffset = Vector3.new(0, 3, 0)
+                -- Рисуем только если игрок близко
+                if dist < MaxDistance then
+                    local isMur = char:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife")
+                    local isShr = char:FindFirstChild("Gun") or p.Backpack:FindFirstChild("Gun")
+                    local color = isMur and Color3.new(1,0,0) or isShr and Color3.new(0,0,1) or Color3.new(0,1,0)
 
-                local label = tag:FindFirstChild("L") or Instance.new("TextLabel", tag)
-                label.Name = "L"
-                label.BackgroundTransparency = 1
-                label.Size = UDim2.new(1, 0, 1, 0)
-                label.Text = string.format("[%s]\n%s", role:upper(), p.Name)
-                label.TextColor3 = color
-                label.Font = Enum.Font.SourceSansBold
-                label.TextSize = 14
-                label.TextStrokeTransparency = 0 -- Обводка текста для читаемости
+                    -- Используем Highlight (он менее затратный, чем Box ESP)
+                    local h = char:FindFirstChild("ESP_H") or Instance.new("Highlight", char)
+                    h.Name = "ESP_H"
+                    h.FillColor = color
+                    h.FillTransparency = 0.6
+                    h.OutlineTransparency = 0
+                    
+                    -- Храним для очистки
+                    ESP_Objects[p.Name] = h
+                else
+                    if char:FindFirstChild("ESP_H") then char.ESP_H:Destroy() end
+                end
             end
         end
     end
 
-    -- 2. Gun ESP (Поиск выпавшего пистолета)
+    -- Оптимизированный Gun ESP
     if _G.Config.GunESP then
-        for _, v in pairs(workspace:GetDescendants()) do
-            if (v.Name == "GunDrop" or v.Name == "Gun") and v:IsA("BasePart") then
-                if not v:FindFirstChild("G_H") then
-                    local h = Instance.new("Highlight", v)
-                    h.Name = "G_H"
-                    h.FillColor = RoleColors.Gun
-                    h.OutlineColor = Color3.new(1,1,1)
-                end
-            end
+        local gun = workspace:FindFirstChild("GunDrop", true)
+        if gun and gun:IsA("BasePart") then
+            local h = gun:FindFirstChild("G_H") or Instance.new("Highlight", gun)
+            h.Name = "G_H"
+            h.FillColor = Color3.new(0, 1, 1)
+            ESP_Objects["GunDrop"] = h
         end
     end
 end)
