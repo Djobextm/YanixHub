@@ -1,66 +1,88 @@
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
-local Mouse = LP:GetMouse()
-local RunService = game:GetService("RunService")
+local Tab = _G.Tabs.Combat
 
-local Tab = _G.Tabs.Main
+-- Переменные для работы функций
+_G.Config.SilentAim = false
+_G.Config.KillAura = false
 
--- Функция поиска цели (Туловище + Бесконечный радиус)
-local function GetTarget()
-    local target = nil
-    local shortestDist = math.huge
-
+-- Вспомогательная функция поиска Мардера (для Сайлент Аима)
+local function GetMurderer()
     for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LP and p.Character then
-            -- Безопасная проверка наличия HumanoidRootPart
-            local root = p.Character:FindFirstChild("HumanoidRootPart")
-            local hum = p.Character:FindFirstChildOfClass("Humanoid")
-            
-            if root and hum and hum.Health > 0 then
-                -- Проверка, является ли игрок Мардером (наличие ножа)
-                local isMur = p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife")
-                
-                if isMur then
-                    local dist = (LP.Character.HumanoidRootPart.Position - root.Position).Magnitude
-                    if dist < shortestDist then
-                        shortestDist = dist
-                        target = root -- Целимся в туловище
-                    end
-                end
+        if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            -- Проверка ножа в руках или рюкзаке
+            if p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife") then
+                return p.Character.HumanoidRootPart
+            end
+        end
+    end
+    return nil
+end
+
+-- Вспомогательная функция поиска ближайшей цели (для Килл Ауры, если ты Мардер)
+local function GetClosestPlayer(dist)
+    local target = nil
+    local lastDist = dist
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local d = (LP.Character.HumanoidRootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude
+            if d < lastDist then
+                lastDist = d
+                target = p.Character
             end
         end
     end
     return target
 end
 
-Tab:AddToggle("SAim", {Title = "Silent Aim (Body + Dist)", Default = false}):OnChanged(function(v) _G.Config.SilentAim = v end)
-Tab:AddToggle("KAura", {Title = "Kill Aura", Default = false}):OnChanged(function(v) _G.Config.KillAura = v end)
+-- --- ИНТЕРФЕЙС ---
 
--- РЕАЛИЗАЦИЯ: Подмена Mouse.Hit (Пример 1)
-local OldIndex
-OldIndex = hookmetamethod(game, "__index", function(self, index)
-    if not checkcaller() and self == Mouse and (index == "Hit" or index == "Target") then
-        if _G.Config.SilentAim then
-            local t = GetTarget()
-            if t then
-                -- Возвращаем позицию цели напрямую, обходя проверку дистанции сервера
-                return (index == "Hit" and t.CFrame or t)
-            end
-        end
-    end
-    return OldIndex(self, index)
+-- Silent Aim (Только на Мардера)
+Tab:AddToggle("SilentAim", {Title = "Silent Aim (Target: Murderer)", Default = false}):OnChanged(function(v)
+    _G.Config.SilentAim = v
 end)
 
--- Kill Aura (Через Touched - Пример 3)
-RunService.Stepped:Connect(function()
-    if _G.Config.KillAura and LP.Character and LP.Character:FindFirstChild("Knife") then
-        local knife = LP.Character.Knife:FindFirstChild("Handle")
-        if knife then
-            for _, p in pairs(Players:GetPlayers()) do
-                if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                    if (LP.Character.HumanoidRootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude < 16 then
-                        firetouchinterest(p.Character.HumanoidRootPart, knife, 0)
-                        firetouchinterest(p.Character.HumanoidRootPart, knife, 1)
+-- Kill Aura (Авто-удар ножом)
+Tab:AddToggle("KillAura", {Title = "Kill Aura (If Murderer)", Default = false}):OnChanged(function(v)
+    _G.Config.KillAura = v
+end)
+
+-- --- ЛОГИКА ---
+
+-- 1. Перехват выстрела (Silent Aim)
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+
+    -- Перехватываем событие стрельбы
+    if tostring(self) == "ShootGun" and method == "FireServer" and _G.Config.SilentAim then
+        local target = GetMurderer()
+        if target then
+            -- Меняем направление пули точно в HumanoidRootPart Мардера
+            args[1] = target.Position
+            return oldNamecall(self, unpack(args))
+        end
+    end
+
+    return oldNamecall(self, ...)
+end)
+
+-- 2. Цикл Kill Aura (срабатывает каждые 0.1 сек)
+task.spawn(function()
+    while task.wait(0.1) do
+        if _G.Config.KillAura then
+            -- Проверяем, есть ли у нас нож в руках
+            local knife = LP.Character:FindFirstChild("Knife")
+            if knife and knife:IsA("Tool") then
+                local targetChar = GetClosestPlayer(15) -- Дистанция 15 studs
+                if targetChar then
+                    -- Активируем нож (удар)
+                    knife:Activate()
+                    -- Для некоторых версий MM2 требуется вызов Remote
+                    local slash = knife:FindFirstChild("Slash") or knife:FindFirstChild("Stab")
+                    if slash and slash:IsA("RemoteEvent") then
+                        slash:FireServer(targetChar.HumanoidRootPart.Position)
                     end
                 end
             end
