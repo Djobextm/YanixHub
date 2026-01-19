@@ -5,93 +5,64 @@ local RunService = game:GetService("RunService")
 
 local Tab = _G.Tabs.Main
 
--- ==========================================
--- УМНЫЙ ПОИСК ЦЕЛИ (97% + ТОЧНОСТЬ)
--- ==========================================
-
-local function GetBestTarget(role)
-    local target = nil
-    local nearestDist = math.huge
+-- Функция поиска цели (SnapSanix Style)
+local function GetTarget(Role)
+    local Target = nil
+    local Distance = math.huge
     
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LP and p.Character and p.Character:FindFirstChild("Head") then
-            -- Проверка на то, жив ли игрок
-            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= LP and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
+            local hum = v.Character:FindFirstChildOfClass("Humanoid")
             if hum and hum.Health > 0 then
+                local IsMur = v.Character:FindFirstChild("Knife") or v.Backpack:FindFirstChild("Knife")
+                local IsShr = v.Character:FindFirstChild("Gun") or v.Backpack:FindFirstChild("Gun") or v.Character:FindFirstChild("Revolver") or v.Backpack:FindFirstChild("Revolver")
                 
-                local isMur = p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife")
-                local isShr = p.Character:FindFirstChild("Gun") or p.Backpack:FindFirstChild("Gun") or 
-                               p.Character:FindFirstChild("Revolver") or p.Backpack:FindFirstChild("Revolver")
-
-                if (role == "Murderer" and isMur) or (role == "Sheriff" and isShr) then
-                    local dist = (LP.Character.HumanoidRootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude
-                    if dist < nearestDist then
-                        target = p.Character.Head
-                        nearestDist = dist
+                local Match = false
+                if Role == "Murderer" and IsMur then Match = true end
+                if Role == "Sheriff" and IsShr then Match = true end
+                
+                if Match then
+                    local Mag = (LP.Character.HumanoidRootPart.Position - v.Character.HumanoidRootPart.Position).Magnitude
+                    if Mag < Distance then
+                        Distance = Mag
+                        Target = v.Character.HumanoidRootPart
                     end
                 end
             end
         end
     end
-    return target
+    return Target
 end
 
--- ==========================================
--- ИНТЕРФЕЙС
--- ==========================================
-
-Tab:AddToggle("SAim", {Title = "Silent Aim (Bullet Redirect)", Default = false}):OnChanged(function(v) _G.Config.SilentAim = v end)
+Tab:AddToggle("SAim", {Title = "Silent Aim (Safe Redirect)", Default = false}):OnChanged(function(v) _G.Config.SilentAim = v end)
 Tab:AddToggle("TAim", {Title = "Throw Aim (Ultra Knife)", Default = false}):OnChanged(function(v) _G.Config.ThrowAim = v end)
-Tab:AddToggle("KAura", {Title = "Kill Aura (Murderer)", Default = false}):OnChanged(function(v) _G.Config.KillAura = v end)
+Tab:AddToggle("KAura", {Title = "Kill Aura (Legit)", Default = false}):OnChanged(function(v) _G.Config.KillAura = v end)
 
--- ==========================================
--- ГЛАВНЫЙ МЕХАНИЗМ (HOOKS)
--- ==========================================
-
--- 1. Перехват выстрела (ShootGun Remote)
--- Это исправляет проблему "стрельбы в стену"
-local OldNamecall
-OldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-    local method = getnamecallmethod()
-    local args = {...}
-
-    if not checkcaller() and _G.Config.SilentAim and method == "FireServer" then
-        if self.Name == "ShootGun" or self.Name == "Shoot" then
-            local target = GetBestTarget("Murderer")
-            if target then
-                -- Подменяем координаты клика на координаты головы мардера
-                args[1] = target.Position
-                return OldNamecall(self, unpack(args))
-            end
-        end
-    end
-    return OldNamecall(self, ...)
-end)
-
--- 2. Перехват Мышки (Для Броска ножа и визуальных лучей)
+-- Перехват наведения без ошибок в консоли
 local OldIndex
 OldIndex = hookmetamethod(game, "__index", function(self, index)
-    if not checkcaller() then
-        if _G.Config.SilentAim and self == Mouse and (index == "Hit" or index == "Target") then
-            local t = GetBestTarget("Murderer")
-            if t then return (index == "Hit" and t.CFrame or t) end
-        elseif _G.Config.ThrowAim and self == Mouse and (index == "Hit" or index == "Target") then
-            local t = GetBestTarget("Sheriff")
-            if t then return (index == "Hit" and t.CFrame or t) end
+    if not checkcaller() and (index == "Hit" or index == "Target") and self == Mouse then
+        if _G.Config.SilentAim then
+            local T = GetTarget("Murderer")
+            if T then return (index == "Hit" and T.CFrame or T) end
+        end
+        if _G.Config.ThrowAim then
+            local T = GetTarget("Sheriff")
+            if T then return (index == "Hit" and T.CFrame or T) end
         end
     end
     return OldIndex(self, index)
 end)
 
--- 3. Kill Aura (Touch Interest)
-RunService.Stepped:Connect(function()
+-- Оптимизированная Аура
+RunService.RenderStepped:Connect(function()
     if _G.Config.KillAura and LP.Character and LP.Character:FindFirstChild("Knife") then
-        for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                local dist = (LP.Character.HumanoidRootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude
-                if dist < 18 then
-                    firetouchinterest(LP.Character.Knife.Handle, p.Character.HumanoidRootPart, 0)
-                    firetouchinterest(LP.Character.Knife.Handle, p.Character.HumanoidRootPart, 1)
+        local Knife = LP.Character.Knife
+        for _, v in pairs(Players:GetPlayers()) do
+            if v ~= LP and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
+                if (LP.Character.HumanoidRootPart.Position - v.Character.HumanoidRootPart.Position).Magnitude < 16 then
+                    firetouchinterest(v.Character.HumanoidRootPart, Knife.Handle, 0)
+                    firetouchinterest(v.Character.HumanoidRootPart, Knife.Handle, 1)
                 end
             end
         end
