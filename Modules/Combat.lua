@@ -1,11 +1,10 @@
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
-local RS = game:GetService("RunService")
 
 -- Настройки Prediction (Предсказание движения)
 local PredictionAmount = 0.165 
 
--- Ожидание вкладки 'Main' из твоего UI.lua
+-- Ожидание вкладки 'Main' из вашего UI.lua
 local Tab = nil
 for i = 1, 15 do
     if _G.Tabs and _G.Tabs.Main then
@@ -16,22 +15,23 @@ for i = 1, 15 do
 end
 
 if not Tab then
-    warn("YanixHub: Вкладка 'Main' (Combat) не найдена!")
+    warn("YanixHub: Вкладка 'Main' не найдена! Проверьте UI.lua")
     return false
 end
 
+-- Инициализация настроек
 _G.Config = _G.Config or {}
 _G.Config.SilentAim = false
+_G.Config.SilentAimButton = false
 
 -- Функция поиска Мардера и расчета точки (Тело + Prediction)
 local function GetPredictTarget()
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            -- Проверка: является ли игрок Мардером (нож в руках или рюкзаке)
+            -- Мардер — это игрок с ножом
             local hasKnife = p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife")
             if hasKnife then
                 local root = p.Character.HumanoidRootPart
-                -- Рассчитываем позицию с учетом скорости игрока
                 return root.Position + (root.Velocity * PredictionAmount)
             end
         end
@@ -39,28 +39,24 @@ local function GetPredictTarget()
     return nil
 end
 
--- Функция для мгновенного выстрела
+-- Функция для мгновенного выстрела (для кнопки)
 local function ShootMurderer()
     local gun = LP.Character:FindFirstChild("Gun") or LP.Backpack:FindFirstChild("Gun")
     if gun then
-        -- Авто-экипировка пистолета
         if gun.Parent == LP.Backpack then
             LP.Character.Humanoid:EquipTool(gun)
         end
-        
         local hitPos = GetPredictTarget()
         if hitPos then
             local shootEvent = gun:FindFirstChild("ShootGun")
-            if shootEvent and shootEvent:IsA("RemoteEvent") then
-                shootEvent:FireServer(hitPos)
-            end
+            if shootEvent then shootEvent:FireServer(hitPos) end
         end
     end
 end
 
--- --- СОЗДАНИЕ ЭКРАННОЙ КНОПКИ (Draggable) ---
+-- --- СОЗДАНИЕ ЭКРАННОЙ КНОПКИ ---
 local ScreenGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
-ScreenGui.Name = "YanixAimGui"
+ScreenGui.Name = "YanixAimButtonGui"
 
 local AimBtn = Instance.new("TextButton", ScreenGui)
 AimBtn.Name = "AimButton"
@@ -71,11 +67,10 @@ AimBtn.Text = "SHOOT MURDERER"
 AimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 AimBtn.Font = Enum.Font.SourceSansBold
 AimBtn.TextSize = 14
-AimBtn.Draggable = true -- Позволяет перемещать кнопку пальцем/мышкой
+AimBtn.Draggable = true 
 AimBtn.Active = true
-AimBtn.Visible = false -- Скрыта по умолчанию
+AimBtn.Visible = false 
 
--- Визуал кнопки
 local UICorner = Instance.new("UICorner", AimBtn)
 UICorner.CornerRadius = UDim.new(0, 10)
 local UIStroke = Instance.new("UIStroke", AimBtn)
@@ -84,22 +79,31 @@ UIStroke.Thickness = 2
 
 AimBtn.MouseButton1Click:Connect(ShootMurderer)
 
--- --- ИНТЕРФЕЙС В МЕНЮ ---
+-- --- ИНТЕРФЕЙС В МЕНЮ (РАЗДЕЛЬНО) ---
+
+-- 1. Только пассивный Silent Aim (улучшает ваши обычные выстрелы)
 Tab:AddToggle("SilentAim", {
-    Title = "Silent Aim + Screen Button", 
+    Title = "Silent Aim (Prediction)", 
     Default = false
 }):OnChanged(function(v) 
     _G.Config.SilentAim = v 
-    AimBtn.Visible = v -- Кнопка на экране появляется только при включении
 end)
 
--- --- ЛОГИКА SILENT AIM (Через клики по экрану) ---
+-- 2. Только экранная кнопка (позволяет стрелять нажатием на кнопку)
+Tab:AddToggle("SilentAimBtn", {
+    Title = "Silent Aim Screen Button", 
+    Default = false
+}):OnChanged(function(v) 
+    _G.Config.SilentAimButton = v 
+    AimBtn.Visible = v 
+end)
+
+-- --- ЛОГИКА SILENT AIM ---
 local oldNamecall
 oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
 
-    -- Перехват стандартного события выстрела MM2
     if _G.Config.SilentAim and tostring(self) == "ShootGun" and method == "FireServer" then
         local hitPos = GetPredictTarget()
         if hitPos then
