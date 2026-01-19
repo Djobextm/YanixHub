@@ -1,71 +1,106 @@
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local LP = Players.LocalPlayer
-local RS = game:GetService("RunService")
-local Tab = _G.Tabs.Player
 
--- 1. СКОРОСТЬ (WalkSpeed)
-Tab:AddSlider("SpeedSlider", {
-    Title = "WalkSpeed",
-    Default = 16,
-    Min = 16,
-    Max = 200,
-    Rounding = 1,
-    Callback = function(v) _G.Config.Speed = v end
-})
+-- Ждем загрузку вкладок
+local Tab = nil
+for i = 1, 15 do
+    if _G.Tabs and (_G.Tabs.Player or _G.Tabs.Main) then
+        Tab = _G.Tabs.Player or _G.Tabs.Main
+        break
+    end
+    task.wait(0.5)
+end
 
--- 2. ПРЫЖОК (JumpPower)
-Tab:AddSlider("JumpSlider", {
-    Title = "JumpPower",
-    Default = 50,
-    Min = 50,
-    Max = 250,
-    Rounding = 1,
-    Callback = function(v) _G.Config.Jump = v end
-})
+if not Tab then return false end
 
--- 3. СКВОЗЬ СТЕНЫ (Noclip)
-Tab:AddToggle("NoclipToggle", {Title = "Noclip", Default = false}):OnChanged(function(v)
-    _G.Config.Noclip = v
-end)
+_G.Config = _G.Config or {}
+_G.Config.WalkSpeed = 16
+_G.Config.JumpPower = 50
+_G.Config.AntiFling = false
 
--- 4. АНТИ-ТОЛКАНИЕ (Anti-Fling)
-Tab:AddToggle("AntiFlingToggle", {Title = "Anti-Fling", Default = false}):OnChanged(function(v)
-    _G.Config.AntiFling = v
-end)
+-- --- ФУНКЦИИ ---
 
--- ГЛАВНЫЙ ЦИКЛ ОБРАБОТКИ
-RS.Stepped:Connect(function()
-    pcall(function()
-        if LP.Character then
-            local hum = LP.Character:FindFirstChildOfClass("Humanoid")
-            local root = LP.Character:FindFirstChild("HumanoidRootPart")
-
-            if hum then
-                -- Применяем настройки скорости и прыжка
-                hum.WalkSpeed = _G.Config.Speed or 16
-                hum.JumpPower = _G.Config.Jump or 50
-                hum.UseJumpPower = true -- Обязательно для MM2
-            end
-
-            if root then
-                -- NOCLIP: Отключаем коллизию только у твоего персонажа
-                -- Это НЕ создает белых блоков на карте, так как не трогает workspace
-                if _G.Config.Noclip then
-                    for _, part in pairs(LP.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = false
+-- Функция отключения коллизии с другими игроками
+local function UpdateAntiFling()
+    if not _G.Config.AntiFling then return end
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LP and player.Character then
+            for _, part in pairs(LP.Character:GetChildren()) do
+                if part:IsA("BasePart") then
+                    for _, otherPart in pairs(player.Character:GetChildren()) do
+                        if otherPart:IsA("BasePart") then
+                            -- Создаем временный запрет на столкновение
+                            local constraint = Instance.new("NoCollisionConstraint")
+                            constraint.Part0 = part
+                            constraint.Part1 = otherPart
+                            constraint.Parent = part
+                            game:GetService("Debris"):AddItem(constraint, 0.1)
                         end
                     end
                 end
+            end
+        end
+    end
+end
 
-                -- ANTI-FLING: Защита от раскрутки
-                if _G.Config.AntiFling then
-                    root.Velocity = Vector3.new(0, 0, 0)
-                    root.RotVelocity = Vector3.new(0, 0, 0)
+-- --- ИНТЕРФЕЙС ---
+
+Tab:AddSection("Характеристики")
+
+Tab:AddInput("SpeedInput", {
+    Title = "Скорость бега",
+    Default = "16",
+    Numeric = true,
+    Finished = true,
+    Callback = function(v) _G.Config.WalkSpeed = tonumber(v) or 16 end
+})
+
+Tab:AddParagraph({Title = "💡 Инфо", Content = "Безопасно: 16-25. Выше 30 — риск кика."})
+
+Tab:AddSection("Защита")
+
+-- Кнопка Anti-Fling
+Tab:AddToggle("AntiFlingToggle", {
+    Title = "Anti-Fling (No Collision)",
+    Default = false
+}):OnChanged(function(v)
+    _G.Config.AntiFling = v
+    if not v then
+        -- Если выключили, можно сделать ресет или просто подождать
+        print("Anti-Fling выключен")
+    end
+end)
+
+Tab:AddParagraph({Title = "🛡️ Как это работает", Content = "Убирает коллизию с другими игроками. Они не смогут тебя толкнуть или зафлингать."})
+
+-- --- ЦИКЛЫ ---
+
+-- Основной цикл для скорости и анти-флинга
+RunService.Stepped:Connect(function()
+    if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+        -- Поддержка скорости
+        LP.Character.Humanoid.WalkSpeed = _G.Config.WalkSpeed
+        LP.Character.Humanoid.JumpPower = _G.Config.JumpPower
+        LP.Character.Humanoid.UseJumpPower = true
+        
+        -- Работа Anti-Fling
+        if _G.Config.AntiFling then
+            UpdateAntiFling()
+            -- Дополнительная защита: обнуление угловой скорости (Velocity)
+            if LP.Character:FindFirstChild("HumanoidRootPart") then
+                LP.Character.HumanoidRootPart.CanCollide = true -- Твой пол остается твердым
+                -- Отключаем физическое воздействие от других
+                for _, v in pairs(LP.Character:GetDescendants()) do
+                    if v:IsA("BasePart") then
+                        v.Velocity = Vector3.new(0, v.Velocity.Y, 0)
+                        v.RotVelocity = Vector3.new(0, 0, 0)
+                    end
                 end
             end
         end
-    end)
+    end
 end)
 
 return true
