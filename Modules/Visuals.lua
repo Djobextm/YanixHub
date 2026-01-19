@@ -1,120 +1,145 @@
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
-local RunService = game:GetService("RunService")
+local RS = game:GetService("RunService")
 local Tab = _G.Tabs.Visuals
 
--- Цвета ролей
-local function GetRoleColor(p)
-    if not p or not p.Character then return Color3.fromRGB(0, 255, 0) end
-    local char = p.Character
-    local backpack = p:FindFirstChild("Backpack")
-    
-    if char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife")) then
-        return Color3.fromRGB(255, 0, 0) -- Мардер
-    elseif char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun")) then
-        return Color3.fromRGB(0, 0, 255) -- Шериф
-    elseif char:FindFirstChild("Revolver") or (backpack and backpack:FindFirstChild("Revolver")) then
-        return Color3.fromRGB(255, 255, 0) -- Герой
+local CurrentMap = nil
+
+-- Функция поиска текущей карты
+local function GetMap()
+    if CurrentMap and not CurrentMap:IsDescendantOf(workspace) then
+        CurrentMap = nil
     end
-    return Color3.fromRGB(0, 255, 0) -- Невинный
-end
-
--- Универсальная функция текста
-local function CreateTag(parent, text, color)
-    if parent:FindFirstChild("YnxTag") then parent.YnxTag:Destroy() end
-    local bgu = Instance.new("BillboardGui", parent)
-    bgu.Name = "YnxTag"
-    bgu.Size = UDim2.new(0, 200, 0, 50)
-    bgu.StudsOffset = Vector3.new(0, 2, 0)
-    bgu.AlwaysOnTop = true
-    local lbl = Instance.new("TextLabel", bgu)
-    lbl.BackgroundTransparency = 1
-    lbl.Size = UDim2.new(1, 0, 1, 0)
-    lbl.Text = text
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 14
-    lbl.TextColor3 = color
-    lbl.TextStrokeTransparency = 0
-    return bgu
-end
-
--- ФУНКЦИЯ ОПРЕДЕЛЕНИЯ ТЕКУЩЕЙ КАРТЫ И ПОИСКА ПУШКИ
-local function FindGunInCurrentMap()
-    local currentMap = nil
-    
-    -- В MM2 активная карта — это модель в workspace, у которой есть CoinContainer или Spawns
-    for _, obj in pairs(workspace:GetChildren()) do
-        if obj:IsA("Model") and (obj:FindFirstChild("CoinContainer") or obj:FindFirstChild("Spawns")) then
-            currentMap = obj
-            break
+    if not CurrentMap then
+        for _, v in pairs(workspace:GetChildren()) do
+            if v:IsA("Model") and v:FindFirstChild("CoinContainer") then
+                CurrentMap = v
+                return v
+            end
         end
     end
-    
-    if currentMap then
-        return currentMap:FindFirstChild("GunDrop")
-    end
-    
-    -- Запасной вариант, если карта называется специфически
-    return workspace:FindFirstChild("GunDrop") 
+    return CurrentMap
 end
 
-RunService.RenderStepped:Connect(function()
-    -- 1. Player ESP
+-- Логика ролей
+local function GetPlayerRole(p)
+    if not p.Character then return nil, nil end
+    
+    local isMur = p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife")
+    if isMur then return "Murderer", Color3.fromRGB(255, 0, 0) end
+    
+    local isHero = p.Character:FindFirstChild("Revolver") or p.Backpack:FindFirstChild("Revolver")
+    if isHero then return "Hero", Color3.fromRGB(255, 255, 0) end
+    
+    local isShr = p.Character:FindFirstChild("Gun") or p.Backpack:FindFirstChild("Gun")
+    if isShr then return "Sheriff", Color3.fromRGB(0, 0, 255) end
+    
+    return "Innocent", Color3.fromRGB(0, 255, 0)
+end
+
+-- Функция удаления ESP (Очистка)
+local function CleanupESP()
+    for _, p in pairs(Players:GetPlayers()) do
+        if p.Character then
+            local h = p.Character:FindFirstChild("ESP_H")
+            if h then h:Destroy() end
+            if p.Character:FindFirstChild("Head") then
+                local t = p.Character.Head:FindFirstChild("ESP_Tag")
+                if t then t:Destroy() end
+            end
+        end
+    end
+end
+
+-- Функция удаления Gun ESP
+local function CleanupGunESP()
+    local map = GetMap()
+    if map then
+        local gun = map:FindFirstChild("GunDrop")
+        if gun then
+            local h = gun:FindFirstChild("GunUI_High")
+            if h then h:Destroy() end
+            local t = gun:FindFirstChild("GunTag")
+            if t then t:Destroy() end
+        end
+    end
+end
+
+Tab:AddToggle("PESP", {Title = "ESP игроков", Default = false}):OnChanged(function(v) 
+    _G.Config.ESP = v 
+    if not v then CleanupESP() end
+end)
+
+Tab:AddToggle("GESP", {Title = "Gun ESP (Highlight)", Default = false}):OnChanged(function(v) 
+    _G.Config.GunESP = v 
+    if not v then CleanupGunESP() end
+end)
+
+RS.Heartbeat:Connect(function()
+    -- ESP ИГРОКОВ
     if _G.Config.ESP then
         for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LP and p.Character and p.Character:FindFirstChild("Head") then
-                local char = p.Character
-                local highlight = char:FindFirstChild("YnxHighlight") or Instance.new("Highlight", char)
-                highlight.Name = "YnxHighlight"
-                highlight.Enabled = true
-                highlight.FillColor = GetRoleColor(p)
-                highlight.OutlineColor = highlight.FillColor
+            if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChild("Head") then
+                local roleName, roleColor = GetPlayerRole(p)
                 
-                local tag = char.Head:FindFirstChild("YnxTag") or CreateTag(char.Head, p.Name, highlight.FillColor)
-                tag.Enabled = true
-                tag.TextLabel.TextColor3 = highlight.FillColor
-            end
-        end
-    end
-
-    -- 2. Gun ESP (Поиск строго в текущей карте)
-    if _G.Config.GunESP then
-        local gun = FindGunInCurrentMap()
-        if gun and gun:IsA("BasePart") then
-            local gHighlight = gun:FindFirstChild("YnxGunHighlight") or Instance.new("Highlight", gun)
-            gHighlight.Name = "YnxGunHighlight"
-            gHighlight.Enabled = true
-            gHighlight.FillColor = Color3.fromRGB(255, 255, 255)
-            
-            local gTag = gun:FindFirstChild("YnxTag") or CreateTag(gun, "★ FALLING GUN ★", Color3.fromRGB(255, 255, 255))
-            gTag.Enabled = true
-        end
-    end
-end)
-
--- ОЧИСТКА ПРИ ВЫКЛЮЧЕНИИ
-Tab:AddToggle("ESP", {Title = "Player ESP + Names", Default = false}):OnChanged(function(v) 
-    _G.Config.ESP = v 
-    if not v then
-        for _, p in pairs(Players:GetPlayers()) do
-            if p.Character then
-                local h = p.Character:FindFirstChild("YnxHighlight")
-                if h then h:Destroy() end
-                if p.Character:FindFirstChild("Head") and p.Character.Head:FindFirstChild("YnxTag") then
-                    p.Character.Head.YnxTag:Destroy()
+                local h = p.Character:FindFirstChild("ESP_H") or Instance.new("Highlight", p.Character)
+                h.Name = "ESP_H"
+                h.FillColor = roleColor
+                h.FillTransparency = 0.5
+                h.OutlineColor = Color3.new(1, 1, 1)
+                h.Enabled = true
+                
+                local tag = p.Character.Head:FindFirstChild("ESP_Tag") or Instance.new("BillboardGui", p.Character.Head)
+                if not tag:FindFirstChild("TextLabel") then
+                    tag.Name = "ESP_Tag"
+                    tag.AlwaysOnTop = true
+                    tag.Size = UDim2.new(0, 100, 0, 50)
+                    tag.ExtentsOffset = Vector3.new(0, 3, 0)
+                    local l = Instance.new("TextLabel", tag)
+                    l.BackgroundTransparency = 1
+                    l.Size = UDim2.new(1, 0, 1, 0)
+                    l.Font = Enum.Font.SourceSansBold
+                    l.TextSize = 14
+                    l.TextStrokeTransparency = 0
                 end
+                tag.Enabled = true
+                tag.TextLabel.Text = string.format("[%s]\n%s", roleName, p.Name)
+                tag.TextLabel.TextColor3 = roleColor
             end
         end
     end
-end)
-
-Tab:AddToggle("GunESP", {Title = "Dropped Gun ESP", Default = false}):OnChanged(function(v) 
-    _G.Config.GunESP = v 
-    if not v then
-        -- Ищем и удаляем везде, где может быть
-        for _, obj in pairs(workspace:GetDescendants()) do
-            if obj.Name == "YnxGunHighlight" or (obj.Name == "YnxTag" and obj.Parent.Name == "GunDrop") then
-                obj:Destroy()
+    
+    -- GUN ESP
+    if _G.Config.GunESP then
+        local map = GetMap()
+        if map then
+            local gun = map:FindFirstChild("GunDrop")
+            if gun and gun:IsA("BasePart") then
+                if not gun:FindFirstChild("GunUI_High") then
+                    local high = Instance.new("Highlight", gun)
+                    high.Name = "GunUI_High"
+                    high.FillColor = Color3.fromRGB(0, 255, 255)
+                    high.FillTransparency = 0.4
+                    high.OutlineColor = Color3.new(1, 1, 1)
+                    high.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    
+                    local bill = Instance.new("BillboardGui", gun)
+                    bill.Name = "GunTag"
+                    bill.AlwaysOnTop = true
+                    bill.Size = UDim2.new(0, 150, 0, 50)
+                    bill.ExtentsOffset = Vector3.new(0, 1.5, 0)
+                    local lab = Instance.new("TextLabel", bill)
+                    lab.BackgroundTransparency = 1
+                    lab.Size = UDim2.new(1, 0, 1, 0)
+                    lab.Text = "★ FALLING GUN ★"
+                    lab.TextColor3 = Color3.fromRGB(0, 255, 255)
+                    lab.Font = Enum.Font.SourceSansBold
+                    lab.TextSize = 18
+                    lab.TextStrokeTransparency = 0
+                else
+                    gun.GunUI_High.Enabled = true
+                    gun.GunTag.Enabled = true
+                end
             end
         end
     end
