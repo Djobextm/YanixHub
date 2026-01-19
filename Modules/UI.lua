@@ -42,6 +42,7 @@ _G.Tabs = {
     Visuals = Window:AddTab({ Title = "Visuals", Icon = "eye" }),
     Player = Window:AddTab({ Title = "Player", Icon = "user" }),
     Farm = Window:AddTab({ Title = "Farm", Icon = "coins" }),
+    Misc = Window:AddTab({ Title = "Misc", Icon = "credits" }),
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
