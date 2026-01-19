@@ -3,93 +3,111 @@ local LP = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local Tab = _G.Tabs.Visuals
 
--- Функция определения цвета роли (MM2)
+-- Функция определения цвета роли MM2
 local function GetRoleColor(player)
     if not player or not player.Character then return Color3.fromRGB(0, 255, 0) end
-    
     local char = player.Character
     local backpack = player:FindFirstChild("Backpack")
-    
-    -- 1. Мардер (Красный)
+
     if char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife")) then
-        return Color3.fromRGB(255, 0, 0)
+        return Color3.fromRGB(255, 0, 0) -- Мардер
+    elseif char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun")) then
+        return Color3.fromRGB(0, 0, 255) -- Шериф
+    elseif char:FindFirstChild("Revolver") or (backpack and backpack:FindFirstChild("Revolver")) then
+        return Color3.fromRGB(255, 255, 0) -- Герой
     end
-    
-    -- 2. Шериф (Синий)
-    if char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun")) then
-        return Color3.fromRGB(0, 0, 255)
-    end
-    
-    -- 3. Герой (Желтый) - Невинный с револьвером
-    if char:FindFirstChild("Revolver") or (backpack and backpack:FindFirstChild("Revolver")) then
-        return Color3.fromRGB(255, 255, 0)
-    end
-    
-    -- 4. Невинный (Зеленый)
-    return Color3.fromRGB(0, 255, 0)
+    return Color3.fromRGB(0, 255, 0) -- Невинный
 end
 
--- Основная функция ESP
-local function CreateESP(player)
-    if player == LP then return end
+-- Универсальная функция создания тега (Имена и Оружие)
+local function CreateTag(parent, text, color)
+    if parent:FindFirstChild("YnxTag") then parent.YnxTag:Destroy() end
     
-    local function setup()
-        -- Ждем загрузки персонажа, чтобы избежать ошибок nil
+    local bgu = Instance.new("BillboardGui")
+    bgu.Name = "YnxTag"
+    bgu.Adornee = parent
+    bgu.Size = UDim2.new(0, 200, 0, 50)
+    bgu.StudsOffset = Vector3.new(0, 2, 0)
+    bgu.AlwaysOnTop = true
+    bgu.Parent = parent
+
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Size = UDim2.new(1, 0, 1, 0)
+    lbl.Text = text
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 14
+    lbl.TextColor3 = color or Color3.new(1, 1, 1)
+    lbl.TextStrokeTransparency = 0 -- Обводка для читаемости
+    lbl.Parent = bgu
+    return bgu
+end
+
+-- Логика Player ESP
+local function SetupPlayerESP(player)
+    if player == LP then return end
+    local function apply()
         local char = player.Character or player.CharacterAdded:Wait()
-        
-        -- Очистка старых эффектов, чтобы не плодить белые блоки
-        local old = char:FindFirstChild("YnxHighlight")
-        if old then old:Destroy() end
-        
-        -- Создаем Highlight (не создает багов на карте)
-        local highlight = Instance.new("Highlight")
+        local head = char:WaitForChild("Head", 5)
+        if not head then return end
+
+        local highlight = char:FindFirstChild("YnxHighlight") or Instance.new("Highlight")
         highlight.Name = "YnxHighlight"
         highlight.Parent = char
-        highlight.Adornee = char
         highlight.FillTransparency = 0.5
-        highlight.OutlineTransparency = 0
         
-        local connection
-        connection = RunService.RenderStepped:Connect(function()
-            -- Проверка на валидность объектов перед обращением
+        local tag = CreateTag(head, player.Name, Color3.new(1,1,1))
+
+        local conn
+        conn = RunService.RenderStepped:Connect(function()
             if not char or not char.Parent or not highlight.Parent then
-                if connection then connection:Disconnect() end
+                conn:Disconnect()
                 return
             end
-
-            if _G.Config.ESP then
-                highlight.Enabled = true
-                highlight.FillColor = GetRoleColor(player)
-                highlight.OutlineColor = highlight.FillColor
-            else
-                highlight.Enabled = false
+            
+            local active = _G.Config.ESP or false
+            highlight.Enabled = active
+            tag.Enabled = active
+            
+            if active then
+                local color = GetRoleColor(player)
+                highlight.FillColor = color
+                highlight.OutlineColor = color
+                tag.TextLabel.TextColor3 = color
             end
         end)
     end
-    
-    player.CharacterAdded:Connect(setup)
-    if player.Character then setup() end
+    player.CharacterAdded:Connect(apply)
+    if player.Character then apply() end
 end
 
--- Инициализация ESP для всех игроков
-for _, p in pairs(Players:GetPlayers()) do
-    CreateESP(p)
-end
-Players.PlayerAdded:Connect(CreateESP)
-
--- Кнопка управления в меню
-Tab:AddToggle("ESP", {Title = "Player ESP (Fix Roles)", Default = false}):OnChanged(function(v)
-    _G.Config.ESP = v
-    
-    -- Мгновенное принудительное выключение всех эффектов
-    if not v then
-        for _, p in pairs(Players:GetPlayers()) do
-            if p.Character then
-                local h = p.Character:FindFirstChild("YnxHighlight")
-                if h then h.Enabled = false end
-            end
+-- Gun ESP (Надпись ★ FALLING GUN ★)
+local function SetupGunESP()
+    RunService.RenderStepped:Connect(function()
+        -- Поиск выпавшего пистолета в MM2
+        local gun = workspace:FindFirstChild("GunDrop") or workspace:FindFirstChild("Gun")
+        if gun and gun:IsA("BasePart") then
+            -- Подсветка (Highlight)
+            local gHighlight = gun:FindFirstChild("YnxGunHighlight") or Instance.new("Highlight")
+            gHighlight.Name = "YnxGunHighlight"
+            gHighlight.Parent = gun
+            gHighlight.FillColor = Color3.fromRGB(255, 255, 255)
+            gHighlight.Enabled = _G.Config.GunESP or false
+            
+            -- Надпись со звездами ★ FALLING GUN ★
+            local gTag = gun:FindFirstChild("YnxTag") or CreateTag(gun, "★ FALLING GUN ★", Color3.fromRGB(255, 255, 255))
+            gTag.Enabled = _G.Config.GunESP or false
         end
-    end
-end)
+    end)
+end
+
+-- Инициализация модулей
+for _, p in pairs(Players:GetPlayers()) do SetupPlayerESP(p) end
+Players.PlayerAdded:Connect(SetupPlayerESP)
+SetupGunESP()
+
+-- Переключатели в меню
+Tab:AddToggle("ESP", {Title = "Player ESP + Names", Default = false}):OnChanged(function(v) _G.Config.ESP = v end)
+Tab:AddToggle("GunESP", {Title = "Dropped Gun ESP", Default = false}):OnChanged(function(v) _G.Config.GunESP = v end)
 
 return true
