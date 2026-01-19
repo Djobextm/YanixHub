@@ -3,43 +3,45 @@ local LP = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local Tab = _G.Tabs.Visuals
 
--- Функция определения цвета (4 роли: Мардер, Шериф, Герой, Невинный)
+-- Функция определения цвета роли (MM2)
 local function GetRoleColor(player)
     if not player or not player.Character then return Color3.fromRGB(0, 255, 0) end
     
     local char = player.Character
-    local backpack = player.Backpack
+    local backpack = player:FindFirstChild("Backpack")
     
-    -- Мардер (Красный)
+    -- 1. Мардер (Красный)
     if char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife")) then
         return Color3.fromRGB(255, 0, 0)
     end
     
-    -- Шериф (Синий)
+    -- 2. Шериф (Синий)
     if char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun")) then
         return Color3.fromRGB(0, 0, 255)
     end
     
-    -- Герой (Желтый)
+    -- 3. Герой (Желтый) - Невинный с револьвером
     if char:FindFirstChild("Revolver") or (backpack and backpack:FindFirstChild("Revolver")) then
         return Color3.fromRGB(255, 255, 0)
     end
     
-    -- Невинный (Зеленый)
+    -- 4. Невинный (Зеленый)
     return Color3.fromRGB(0, 255, 0)
 end
 
--- Функция управления ESP
-local function ApplyESP(player)
+-- Основная функция ESP
+local function CreateESP(player)
     if player == LP then return end
     
     local function setup()
+        -- Ждем загрузки персонажа, чтобы избежать ошибок nil
         local char = player.Character or player.CharacterAdded:Wait()
-        -- Удаляем старые Highlight, чтобы не было наслоений
-        for _, old in pairs(char:GetChildren()) do
-            if old.Name == "YnxHighlight" then old:Destroy() end
-        end
-
+        
+        -- Очистка старых эффектов, чтобы не плодить белые блоки
+        local old = char:FindFirstChild("YnxHighlight")
+        if old then old:Destroy() end
+        
+        -- Создаем Highlight (не создает багов на карте)
         local highlight = Instance.new("Highlight")
         highlight.Name = "YnxHighlight"
         highlight.Parent = char
@@ -49,8 +51,9 @@ local function ApplyESP(player)
         
         local connection
         connection = RunService.RenderStepped:Connect(function()
+            -- Проверка на валидность объектов перед обращением
             if not char or not char.Parent or not highlight.Parent then
-                connection:Disconnect()
+                if connection then connection:Disconnect() end
                 return
             end
 
@@ -68,17 +71,22 @@ local function ApplyESP(player)
     if player.Character then setup() end
 end
 
--- Инициализация
-for _, p in pairs(Players:GetPlayers()) do ApplyESP(p) end
-Players.PlayerAdded:Connect(ApplyESP)
+-- Инициализация ESP для всех игроков
+for _, p in pairs(Players:GetPlayers()) do
+    CreateESP(p)
+end
+Players.PlayerAdded:Connect(CreateESP)
 
+-- Кнопка управления в меню
 Tab:AddToggle("ESP", {Title = "Player ESP (Fix Roles)", Default = false}):OnChanged(function(v)
     _G.Config.ESP = v
-    -- Мгновенное скрытие при выключении
+    
+    -- Мгновенное принудительное выключение всех эффектов
     if not v then
         for _, p in pairs(Players:GetPlayers()) do
-            if p.Character and p.Character:FindFirstChild("YnxHighlight") then
-                p.Character.YnxHighlight.Enabled = false
+            if p.Character then
+                local h = p.Character:FindFirstChild("YnxHighlight")
+                if h then h.Enabled = false end
             end
         end
     end
