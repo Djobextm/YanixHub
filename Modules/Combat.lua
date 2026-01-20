@@ -11,92 +11,97 @@ for i = 1, 15 do
         Tab = _G.Tabs.Main
         break
     end
+    task.local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
+local VIM = game:GetService("VirtualInputManager")
+local RunService = game:GetService("RunService")
+local Stats = game:GetService("Stats")
+
+-- Проверка на загрузку
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+-- Ожидание вкладки Main
+local Tab = nil
+for i = 1, 15 do
+    if _G.Tabs and _G.Tabs.Main then
+        Tab = _G.Tabs.Main
+        break
+    end
     task.wait(0.5)
 end
-if not Tab then return false end
+
+if not Tab then 
+    warn("Combat: Tab not found")
+    return false 
+end
 
 _G.Config = _G.Config or {}
 _G.Config.SilentAim = false
 _G.Config.PingComp = true
+_G.Config.ShowBtn = false
 
--- --- ФУНКЦИЯ ПОИСКА ЦЕЛИ ---
-local function GetTarget()
-    local mousePos = LP:GetMouse().Hit.p
-    local closest = nil
-    local minDist = 999999
-    
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            -- Проверка: Ищем именно МАРДЕРА
-            local isMurderer = p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife")
-            
-            if isMurderer then
-                -- Дополнительная проверка на дистанцию, чтобы не сбоило
-                local dist = (p.Character.HumanoidRootPart.Position - LP.Character.HumanoidRootPart.Position).Magnitude
-                return p.Character.HumanoidRootPart
-            end
-        end
-    end
-    return nil
-end
-
--- --- ГЛАВНЫЙ ХУК: RAYCAST (ВИЗУАЛЬНЫЙ + ЛОГИЧЕСКИЙ) ---
--- Это заставляет саму игру рассчитывать полет пули в сторону врага
-local oldNamecall
-oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-    local method = getnamecallmethod()
-    local args = {...}
-
-    if _G.Config.SilentAim and method == "Raycast" and tostring(self) == "Workspace" then
-        local origin = args[1]
-        local direction = args[2]
-        
-        -- Проверяем, что Raycast идет от нашего персонажа (от пистолета/головы)
-        if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-            local myPos = LP.Character.HumanoidRootPart.Position
-            if (origin - myPos).Magnitude < 15 then -- Если луч исходит от нас
-                
-                local targetPart = GetTarget()
-                if targetPart then
-                    -- РАСЧЕТ УПРЕЖДЕНИЯ
-                    local vel = targetPart.Velocity
-                    local ping = _G.Config.PingComp and (Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) or 0
-                    local prediction = 0.135 + ping
-                    
-                    local predictedPos = targetPart.Position + (vel * prediction) + Vector3.new(0, 0.5, 0)
-                    
-                    -- ПОДМЕНА НАПРАВЛЕНИЯ
-                    -- Мы меняем Direction луча так, чтобы он летел точно в цель
-                    local newDirection = (predictedPos - origin).Unit * 1000
-                    args[2] = newDirection
-                    
-                    return oldNamecall(self, unpack(args))
+-- --- ФУНКЦИЯ ПОИСКА ЦЕЛИ (БЕЗОПАСНАЯ) ---
+local function GetMurdererTarget()
+    -- Используем pcall чтобы избежать ошибок если игрок вышел
+    local success, result = pcall(function()
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                -- Ищем нож
+                if p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife") then
+                    return p.Character.HumanoidRootPart
                 end
             end
         end
-    end
+        return nil
+    end)
+    
+    if success then return result else return nil end
+end
 
-    -- Дополнительный хук для FireServer (на всякий случай)
-    if _G.Config.SilentAim and method == "FireServer" and tostring(self) == "ShootGun" then
-        local targetPart = GetTarget()
-        if targetPart then
-             -- Пинг и упреждение
-            local vel = targetPart.Velocity
-            local ping = _G.Config.PingComp and (Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) or 0
-            local predictedPos = targetPart.Position + (vel * (0.135 + ping)) + Vector3.new(0, 0.5, 0)
-            
-            args[1] = predictedPos
-            return oldNamecall(self, unpack(args))
+-- --- РАСЧЕТ УПРЕЖДЕНИЯ (PREDICTION) ---
+local function GetPredictedPos(targetPart)
+    if not targetPart then return nil end
+    
+    local ping = _G.Config.PingComp and (Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) or 0
+    local prediction = 0.14 + ping
+    local velocity = targetPart.Velocity
+    
+    -- Простая физика: Позиция + (Скорость * Время)
+    return targetPart.Position + (velocity * prediction) + Vector3.new(0, 0.5, 0)
+end
+
+-- --- ХУК МЫШКИ (ГЛАВНАЯ МАГИЯ) ---
+-- Это заставляет пулю лететь визуально в цель
+local mt = getrawmetatable(game)
+local oldIndex = mt.__index
+setreadonly(mt, false)
+
+mt.__index = newcclosure(function(self, key)
+    -- Если скрипт пытается узнать позицию мыши (Hit) или цель (Target)
+    if _G.Config.SilentAim and not checkcaller() and tostring(self) == "Mouse" then
+        if key == "Hit" then
+            local target = GetMurdererTarget()
+            if target then
+                local predPos = GetPredictedPos(target)
+                return CFrame.new(predPos) -- Говорим игре, что мышка там
+            end
+        elseif key == "Target" then
+            local target = GetMurdererTarget()
+            if target then
+                return target -- Говорим игре, что под курсором Мардер
+            end
         end
     end
-
-    return oldNamecall(self, ...)
+    return oldIndex(self, key)
 end)
 
--- --- ФУНКЦИЯ ВЫСТРЕЛА (КНОПКА) ---
-local function ForceShoot()
+setreadonly(mt, true)
+
+-- --- ФУНКЦИЯ ВЫСТРЕЛА ---
+local function Shoot()
     local char = LP.Character
     if not char then return end
+    
     local gun = char:FindFirstChild("Gun") or LP.Backpack:FindFirstChild("Gun")
     
     if gun then
@@ -104,22 +109,22 @@ local function ForceShoot()
             char.Humanoid:EquipTool(gun)
             task.wait(0.25)
         end
-        -- Виртуальный клик. Благодаря хуку Raycast выше, 
-        -- пуля полетит в Мардера, даже если камера смотрит в пол.
+        
+        -- Просто кликаем. Благодаря хуку выше, игра "думает", что мы кликаем по Мардеру
         VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
         task.wait(0.05)
         VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
     end
 end
 
--- --- UI КНОПКА ---
+-- --- КНОПКА ---
 local ScreenGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
-ScreenGui.Name = "YanixMagicBullet"
+ScreenGui.Name = "YanixStableUI"
 
 local AimBtn = Instance.new("TextButton", ScreenGui)
 AimBtn.Size = UDim2.new(0, 150, 0, 50)
 AimBtn.Position = UDim2.new(0.5, -75, 0.7, 0)
-AimBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+AimBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 AimBtn.Text = "MAGIC SHOOT"
 AimBtn.TextColor3 = Color3.fromRGB(255, 50, 50)
 AimBtn.Font = Enum.Font.GothamBold
@@ -127,19 +132,15 @@ AimBtn.TextSize = 14
 AimBtn.Visible = false
 AimBtn.Draggable = true
 AimBtn.Active = true
+Instance.new("UICorner", AimBtn).CornerRadius = UDim.new(0, 10)
+Instance.new("UIStroke", AimBtn).Color = Color3.fromRGB(255, 0, 0)
 
-local UICorner = Instance.new("UICorner", AimBtn)
-UICorner.CornerRadius = UDim.new(0, 10)
-local UIStroke = Instance.new("UIStroke", AimBtn)
-UIStroke.Color = Color3.fromRGB(255, 0, 0)
-UIStroke.Thickness = 2
-
-AimBtn.MouseButton1Click:Connect(ForceShoot)
+AimBtn.MouseButton1Click:Connect(Shoot)
 
 -- --- FLUENT UI ---
 Tab:AddToggle("SilentAim", {
-    Title = "Silent Aim (Magic Bullet)", 
-    Description = "Пули визуально и физически летят в цель",
+    Title = "Silent Aim (Mouse Hook)", 
+    Description = "Стабильная версия Magic Bullet",
     Default = false
 }):OnChanged(function(v) _G.Config.SilentAim = v end)
 
