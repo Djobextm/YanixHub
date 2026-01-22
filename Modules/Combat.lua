@@ -1,21 +1,19 @@
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
-local Mouse = LP:GetMouse()
 local Stats = game:GetService("Stats")
 local VIM = game:GetService("VirtualInputManager")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
--- Конфигурация
+-- --- КОНФИГУРАЦИЯ ---
 _G.Config = _G.Config or {}
 _G.Config.SilentAim = false
-_G.Config.DynamicPrediction = 0.145
-_G.Config.ShowDot = true
 _G.Config.PingComp = true
+_G.Config.Prediction = 0.135 -- Базовое упреждение
 
--- Ожидание UI вкладки
+-- Ожидание загрузки UI
 local Tab = nil
-for i = 1, 15 do
+for i = 1, 20 do
     if _G.Tabs and _G.Tabs.Main then
         Tab = _G.Tabs.Main
         break
@@ -24,130 +22,137 @@ for i = 1, 15 do
 end
 if not Tab then return false end
 
--- --- СОЗДАНИЕ ВИЗУАЛЬНОЙ МЕТКИ (DOT) ---
+-- --- СОЗДАНИЕ ВИЗУАЛЬНОЙ МЕТКИ (КРУЖОК) ---
 local DotGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
-DotGui.Name = "RemiVisuals"
+DotGui.Name = "YanixVisuals"
+DotGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local Dot = Instance.new("Frame", DotGui)
-Dot.Size = UDim2.new(0, 10, 0, 10)
-Dot.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+Dot.Name = "PredictionDot"
+Dot.AnchorPoint = Vector2.new(0.5, 0.5) -- Центрируем якорь
+Dot.Size = UDim2.new(0, 12, 0, 12) -- Размер
+Dot.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- Красный цвет
 Dot.Visible = false
-Dot.ZIndex = 10
-Instance.new("UICorner", Dot).CornerRadius = UDim.new(1, 0)
-local DotStroke = Instance.new("UIStroke", Dot)
-DotStroke.Color = Color3.new(1, 1, 1)
-DotStroke.Thickness = 1.5
 
--- --- ФУНКЦИЯ ПОИСКА МАРДЕРА И УПРЕЖДЕНИЯ ---
-local function GetTargetData()
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            -- Проверка на роль Мардера
-            if p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife") then
-                local root = p.Character.HumanoidRootPart
-                local velocity = root.Velocity
-                
-                -- Динамический расчет упреждения
-                local ping = _G.Config.PingComp and (Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) or 0
-                local dist = (root.Position - LP.Character.HumanoidRootPart.Position).Magnitude
-                local timeScale = _G.Config.DynamicPrediction + ping + (dist / 900)
-                
-                -- Точка выстрела (Торс + Упреждение)
-                local predictPos = root.Position + (velocity * timeScale) + Vector3.new(0, 0.5, 0)
-                return predictPos, p.Character
+local UICorner = Instance.new("UICorner", Dot)
+UICorner.CornerRadius = UDim.new(1, 0) -- Делаем круглым
+local UIStroke = Instance.new("UIStroke", Dot)
+UIStroke.Color = Color3.new(1, 1, 1) -- Белая обводка
+UIStroke.Thickness = 2
+
+-- --- ФУНКЦИЯ ПОИСКА ЦЕЛИ И РАСЧЕТА ---
+local function GetTargetPos()
+    -- Используем pcall для защиты от ошибок доступа
+    local success, result = pcall(function()
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                -- Проверка на Мардера
+                if p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife") then
+                    local root = p.Character.HumanoidRootPart
+                    local velocity = root.Velocity
+                    
+                    -- Расчет упреждения (Пинг + База)
+                    local ping = _G.Config.PingComp and (Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) or 0
+                    local totalPredict = _G.Config.Prediction + ping
+                    
+                    -- Итоговая позиция: Текущая + (Скорость * Время) + Смещение в центр
+                    local finalPos = root.Position + (velocity * totalPredict) + Vector3.new(0, 0.5, 0)
+                    return finalPos
+                end
             end
         end
-    end
-    return nil
+        return nil
+    end)
+    if success then return result else return nil end
 end
 
--- --- ОБНОВЛЕНИЕ МЕТКИ (RENDER STEPPED) ---
+-- --- ОБНОВЛЕНИЕ ПОЗИЦИИ МЕТКИ ---
 RunService.RenderStepped:Connect(function()
-    if _G.Config.SilentAim and _G.Config.ShowDot then
-        local targetPos = GetTargetData()
-        if targetPos then
-            local screenPos, onScreen = Workspace.CurrentCamera:WorldToViewportPoint(targetPos)
-            if onScreen then
-                Dot.Position = UDim2.new(0, screenPos.X - 5, 0, screenPos.Y - 5)
-                Dot.Visible = true
-                return
-            end
-        end
+    if not _G.Config.SilentAim then
+        Dot.Visible = false
+        return
     end
-    Dot.Visible = false
+
+    local targetPos = GetTargetPos()
+    if targetPos then
+        -- Переводим 3D координаты мира в 2D координаты экрана
+        local screenPos, onScreen = Workspace.CurrentCamera:WorldToViewportPoint(targetPos)
+        if onScreen then
+            Dot.Position = UDim2.new(0, screenPos.X, 0, screenPos.Y)
+            Dot.Visible = true
+        else
+            Dot.Visible = false
+        end
+    else
+        Dot.Visible = false
+    end
 end)
 
--- --- СУПЕР ХУК (MAGIC BULLET LOGIC) ---
+-- --- ЕДИНСТВЕННЫЙ БЕЗОПАСНЫЙ ХУК (MAGIC BULLET) ---
+-- Этот метод работает на большинстве мобильных экзекуторов без крашей
 local mt = getrawmetatable(game)
-local oldIndex = mt.__index
-local oldNamecall = mt.__namecall
 setreadonly(mt, false)
+local old_nc = mt.__namecall
 
--- Обман локального скрипта оружия (Mouse.Hit)
-mt.__index = newcclosure(function(self, key)
-    if _G.Config.SilentAim and not checkcaller() and self == Mouse and (key == "Hit" or key == "p") then
-        local tPos = GetTargetData()
-        if tPos then return CFrame.new(tPos) end
-    end
-    return oldIndex(self, key)
-end)
-
--- Обман сервера (FireServer ShootGun)
 mt.__namecall = newcclosure(function(self, ...)
-    local method = getnamecallmethod()
+    local namecall_method = getnamecallmethod()
     local args = {...}
-    
-    if _G.Config.SilentAim and method == "FireServer" and tostring(self) == "ShootGun" then
-        local tPos = GetTargetData()
-        if tPos then
-            args[1] = tPos -- Направляем пулю в предсказанную точку
-            return oldNamecall(self, unpack(args))
+
+    -- Безопасная проверка условия
+    local isShootEvent = (namecall_method == "FireServer" and self.Name == "ShootGun")
+
+    if _G.Config.SilentAim and isShootEvent then
+        local targetPos = GetTargetPos()
+        if targetPos then
+            -- ПОДМЕНА: Заменяем координаты клика на предсказанные координаты Мардера
+            args[1] = targetPos
+            return old_nc(self, unpack(args))
         end
     end
-    return oldNamecall(self, ...)
+
+    return old_nc(self, ...)
 end)
 setreadonly(mt, true)
 
--- --- ФУНКЦИЯ КНОПКИ (ВЫСТРЕЛА) ---
-local function ExecuteShoot()
+-- --- ФУНКЦИЯ КНОПКИ ВЫСТРЕЛА ---
+local function ForceShoot()
     local char = LP.Character
-    local gun = char and (char:FindFirstChild("Gun") or LP.Backpack:FindFirstChild("Gun"))
+    if not char then return end
+    local gun = char:FindFirstChild("Gun") or LP.Backpack:FindFirstChild("Gun")
     
     if gun then
         if gun.Parent == LP.Backpack then
             char.Humanoid:EquipTool(gun)
             task.wait(0.3)
         end
-        
-        -- Просто кликаем. Хуки сами направят пулю в красную метку.
+        -- Виртуальный клик
         VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
         task.wait(0.05)
         VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
     end
 end
 
--- --- UI КНОПКА (REMI SHOOT) ---
+-- --- СОЗДАНИЕ КНОПКИ ---
 local AimBtn = Instance.new("TextButton", DotGui)
 AimBtn.Size = UDim2.new(0, 150, 0, 50)
 AimBtn.Position = UDim2.new(0.5, -75, 0.8, 0)
 AimBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-AimBtn.Text = "DYNAMIC SHOOT"
+AimBtn.Text = "MAGIC SHOOT"
 AimBtn.TextColor3 = Color3.fromRGB(255, 0, 0)
 AimBtn.Font = Enum.Font.GothamBold
-AimBtn.TextSize = 14
+AimBtn.TextSize = 16
 AimBtn.Visible = false
 AimBtn.Draggable = true
 AimBtn.Active = true
 Instance.new("UICorner", AimBtn).CornerRadius = UDim.new(0, 10)
-local Stroke = Instance.new("UIStroke", AimBtn)
-Stroke.Color, Stroke.Thickness = Color3.new(1, 0, 0), 2
+Instance.new("UIStroke", AimBtn).Color = Color3.new(1, 0, 0)
 
-AimBtn.MouseButton1Click:Connect(ExecuteShoot)
+AimBtn.MouseButton1Click:Connect(ForceShoot)
 
 -- --- FLUENT ИНТЕРФЕЙС ---
-Tab:AddToggle("SilentAim", {Title = "Dynamic Silent Aim", Default = false}):OnChanged(function(v) _G.Config.SilentAim = v end)
-Tab:AddToggle("ShowDot", {Title = "Show Prediction Dot", Default = true}):OnChanged(function(v) _G.Config.ShowDot = v end)
-Tab:AddSlider("PredictStr", {Title = "Prediction Strength", Default = 0.145, Min = 0.1, Max = 0.2, Rounding = 3}):OnChanged(function(v) _G.Config.DynamicPrediction = v end)
+Tab:AddToggle("SilentAim", {Title = "Silent Aim (Delta Fix)", Default = false}):OnChanged(function(v) _G.Config.SilentAim = v end)
+Tab:AddToggle("PingComp", {Title = "Ping Compensation", Default = true}):OnChanged(function(v) _G.Config.PingComp = v end)
+Tab:AddSlider("Prediction", {Title = "Prediction Amount", Default = 0.135, Min = 0.1, Max = 0.2, Rounding = 3}):OnChanged(function(v) _G.Config.Prediction = v end)
 Tab:AddToggle("ShowBtn", {Title = "Show Shoot Button", Default = false}):OnChanged(function(v) AimBtn.Visible = v end)
 
 return true
