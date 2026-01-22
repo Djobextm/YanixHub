@@ -1,90 +1,60 @@
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
-local Stats = game:GetService("Stats")
+local RS = game:GetService("RunService")
 local VIM = game:GetService("VirtualInputManager")
-local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
--- --- КОНФИГУРАЦИЯ ---
-_G.Config = _G.Config or {}
-_G.Config.SilentAim = false
-_G.Config.PingComp = true
-_G.Config.Prediction = 0.135 -- Базовое упреждение
+-- --- CONFIG ---
+getgenv().Config = getgenv().Config or {}
+getgenv().Config.SilentAim = false
+getgenv().Config.ShowDot = true
 
--- Ожидание загрузки UI
-local Tab = nil
-for i = 1, 30 do -- Увеличил время ожидания
-    if _G.Tabs and _G.Tabs.Main then
-        Tab = _G.Tabs.Main
-        break
-    end
-    task.wait(0.5)
-end
-if not Tab then return false end
+-- Очистка старых элементов
+if getgenv().Visuals then getgenv().Visuals:Destroy() end
 
--- --- СОЗДАНИЕ ВИЗУАЛЬНОЙ МЕТКИ (КРУЖОК) ---
-if _G.DotGui then _G.DotGui:Destroy() end -- Удаляем старый, если есть
-_G.DotGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
-_G.DotGui.Name = "YanixVisuals_Fixed"
-_G.DotGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+-- --- GUI (Кружок на торсе) ---
+local Visuals = Instance.new("ScreenGui", game:GetService("CoreGui"))
+Visuals.Name = "RemiAnchoredVisuals"
+getgenv().Visuals = Visuals
 
-local Dot = Instance.new("Frame", _G.DotGui)
-Dot.Name = "TargetDot"
-Dot.AnchorPoint = Vector2.new(0.5, 0.5)
-Dot.Size = UDim2.new(0, 14, 0, 14) -- Чуть больше
+local Dot = Instance.new("Frame", Visuals)
+Dot.Size = UDim2.new(0, 10, 0, 10)
 Dot.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
 Dot.Visible = false
-
-local UICorner = Instance.new("UICorner", Dot)
-UICorner.CornerRadius = UDim.new(1, 0)
-local UIStroke = Instance.new("UIStroke", Dot)
-UIStroke.Color = Color3.new(255, 255, 255)
-UIStroke.Thickness = 2
+Dot.AnchorPoint = Vector2.new(0.5, 0.5)
+Dot.ZIndex = 10
+Instance.new("UICorner", Dot).CornerRadius = UDim.new(1, 0)
+local Stroke = Instance.new("UIStroke", Dot)
+Stroke.Color = Color3.new(1, 1, 1)
+Stroke.Thickness = 1.5
 
 -- --- ФУНКЦИЯ ПОИСКА МАРДЕРА ---
--- isForShooting = true (для выстрела, с упреждением)
--- isForShooting = false (для кружка, точно на торсе)
-local function GetMurdererPos(isForShooting)
-    local success, result = pcall(function()
-        for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
-                -- Проверка на Мардера
-                if p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife") then
-                    local root = p.Character.HumanoidRootPart
-                    
-                    if isForShooting then
-                        -- РАСЧЕТ УПРЕЖДЕНИЯ ДЛЯ ВЫСТРЕЛА
-                        local velocity = root.Velocity
-                        local ping = _G.Config.PingComp and (Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) or 0
-                        local totalPredict = _G.Config.Prediction + ping
-                        -- Целимся в верхнюю часть торса
-                        return root.Position + (velocity * totalPredict) + Vector3.new(0, 1, 0)
-                    else
-                        -- ТОЧНАЯ ПОЗИЦИЯ ДЛЯ КРУЖКА
-                        return root.Position
-                    end
+local function GetMurdererRoot()
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            if p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife") then
+                if p.Character.Humanoid.Health > 0 then
+                    return p.Character.HumanoidRootPart
                 end
             end
         end
-        return nil
-    end)
-    if success then return result else return nil end
+    end
+    return nil
 end
 
--- --- ОБНОВЛЕНИЕ ПОЗИЦИИ МЕТКИ ---
-RunService.RenderStepped:Connect(function()
-    if not _G.Config.SilentAim then
+-- --- ЦИКЛ ОБНОВЛЕНИЯ МЕТКИ ---
+RS.RenderStepped:Connect(function()
+    if not getgenv().Config.SilentAim or not getgenv().Config.ShowDot then
         Dot.Visible = false
         return
     end
 
-    -- Получаем позицию БЕЗ упреждения, чтобы кружок был на торсе
-    local targetPos = GetMurdererPos(false)
-    if targetPos then
-        local screenPos, onScreen = Workspace.CurrentCamera:WorldToViewportPoint(targetPos)
-        if onScreen then
-            Dot.Position = UDim2.new(0, screenPos.X, 0, screenPos.Y)
+    local Root = GetMurdererRoot()
+    if Root then
+        local ScreenPos, OnScreen = Workspace.CurrentCamera:WorldToViewportPoint(Root.Position)
+        if OnScreen then
             Dot.Visible = true
+            Dot.Position = UDim2.new(0, ScreenPos.X, 0, ScreenPos.Y)
         else
             Dot.Visible = false
         end
@@ -93,62 +63,75 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- --- ФУНКЦИЯ ВЫСТРЕЛА (DELTA-SAFE SILENT AIM) ---
-local function ForceShoot()
-    local char = LP.Character
-    if not char or not char:FindFirstChild("Humanoid") or char.Humanoid.Health <= 0 then return end
+-- --- ГЛАВНЫЙ ФИКС: ПЕРЕХВАТ МЫШИ (RAYCAST) ---
+-- Это заставляет пулю лететь в кружок, а не туда, куда ты нажал
+local mt = getrawmetatable(game)
+local oldIndex = mt.__index
+setreadonly(mt, false)
+
+mt.__index = newcclosure(function(self, key)
+    -- Если игра запрашивает "Куда нажала мышка?" (Hit) или "На кого наведена?" (Target)
+    if getgenv().Config.SilentAim and not checkcaller() and tostring(self) == "Mouse" then
+        local Root = GetMurdererRoot()
+        if Root then
+            if key == "Hit" then
+                -- Возвращаем координаты кружка (торса) вместо места нажатия
+                return CFrame.new(Root.Position)
+            elseif key == "Target" then
+                -- Возвращаем сам торс мардера
+                return Root
+            end
+        end
+    end
+    return oldIndex(self, key)
+end)
+
+setreadonly(mt, true)
+
+-- --- ФУНКЦИЯ ВЫСТРЕЛА ---
+local function SilentShoot()
+    local Char = LP.Character
+    if not Char then return end
     
-    local gun = char:FindFirstChild("Gun") or LP.Backpack:FindFirstChild("Gun")
-    
-    if gun then
-        -- 1. Экипировка
-        if gun.Parent == LP.Backpack then
-            char.Humanoid:EquipTool(gun)
-            task.wait(0.2) -- Небольшая задержка
+    local Gun = Char:FindFirstChild("Gun") or LP.Backpack:FindFirstChild("Gun")
+    if Gun then
+        if Gun.Parent == LP.Backpack then
+            Char.Humanoid:EquipTool(Gun)
+            task.wait(0.25)
         end
         
-        -- 2. Получаем позицию С УПРЕЖДЕНИЕМ
-        local targetPos = GetMurdererPos(true)
-        if targetPos then
-            local cam = Workspace.CurrentCamera
-            local oldCFrame = cam.CFrame -- Запоминаем куда смотрели
-            
-            -- 3. МГНОВЕННЫЙ ПОВОРОТ КАМЕРЫ НА ЦЕЛЬ
-            cam.CFrame = CFrame.new(cam.CFrame.Position, targetPos)
-            
-            -- 4. ВИРТУАЛЬНЫЙ КЛИК
-            VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-            RunService.RenderStepped:Wait() -- Ждем один кадр
-            VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-            
-            -- 5. ВОЗВРАТ КАМЕРЫ (Очень быстро, незаметно для глаза)
-            cam.CFrame = oldCFrame
-        end
+        -- Нажимаем кнопку. Благодаря хуку выше, игра "подумает", 
+        -- что ты кликнул точно по кружку (торсу).
+        VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        task.wait(0.05)
+        VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
     end
 end
 
--- --- СОЗДАНИЕ КНОПКИ ---
-if _G.AimBtn then _G.AimBtn:Destroy() end
-_G.AimBtn = Instance.new("TextButton", _G.DotGui)
-_G.AimBtn.Size = UDim2.new(0, 160, 0, 55)
-_G.AimBtn.Position = UDim2.new(0.5, -80, 0.7, 0)
-_G.AimBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-_G.AimBtn.Text = "MAGIC SHOOT"
-_G.AimBtn.TextColor3 = Color3.fromRGB(255, 50, 50)
-_G.AimBtn.Font = Enum.Font.GothamBlack
-_G.AimBtn.TextSize = 18
-_G.AimBtn.Visible = false
-_G.AimBtn.Draggable = true
-_G.AimBtn.Active = true
-Instance.new("UICorner", _G.AimBtn).CornerRadius = UDim.new(0, 12)
-Instance.new("UIStroke", _G.AimBtn).Color = Color3.new(1, 0, 0)
-Instance.new("UIStroke", _G.AimBtn).Thickness = 2
+-- --- UI КНОПКА ---
+local ShootBtn = Instance.new("TextButton", Visuals)
+ShootBtn.Size = UDim2.new(0, 150, 0, 50)
+ShootBtn.Position = UDim2.new(0.5, -75, 0.8, 0)
+ShootBtn.Text = "DYNAMIC SHOOT"
+ShootBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+ShootBtn.TextColor3 = Color3.fromRGB(255, 0, 0)
+ShootBtn.Font = Enum.Font.GothamBold
+ShootBtn.Visible = false
+Instance.new("UICorner", ShootBtn).CornerRadius = UDim.new(0, 10)
+Instance.new("UIStroke", ShootBtn).Color = Color3.new(1, 0, 0)
+ShootBtn.MouseButton1Click:Connect(SilentShoot)
 
-_G.AimBtn.MouseButton1Click:Connect(ForceShoot)
+-- --- ИНТЕГРАЦИЯ С ТВОИМ МЕНЮ ---
+local Tab = nil
+for i = 1, 20 do
+    if _G.Tabs and _G.Tabs.Main then Tab = _G.Tabs.Main break end
+    task.wait(0.2)
+end
 
--- --- FLUENT ИНТЕРФЕЙС ---
-Tab:AddToggle("SilentAim", {Title = "Silent Aim (Delta Safe)", Default = false}):OnChanged(function(v) _G.Config.SilentAim = v end)
-Tab:AddSlider("Prediction", {Title = "Prediction Amount", Default = 0.135, Min = 0.1, Max = 0.2, Rounding = 3}):OnChanged(function(v) _G.Config.Prediction = v end)
-Tab:AddToggle("ShowBtn", {Title = "Show Shoot Button", Default = false}):OnChanged(function(v) _G.AimBtn.Visible = v end)
+if Tab then
+    Tab:AddToggle("SilentAim", {Title = "Dynamic Silent Aim", Default = false}):OnChanged(function(v) getgenv().Config.SilentAim = v end)
+    Tab:AddToggle("ShowDot", {Title = "Show Target Dot", Default = true}):OnChanged(function(v) getgenv().Config.ShowDot = v end)
+    Tab:AddToggle("ShowBtn", {Title = "Show Shoot Button", Default = false}):OnChanged(function(v) ShootBtn.Visible = v end)
+end
 
 return true
