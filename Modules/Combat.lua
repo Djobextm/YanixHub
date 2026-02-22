@@ -1,5 +1,5 @@
 -- ================================================
---  MM2 Silent Aim | Fluent UI Fix
+--  MM2 Silent Aim | Fluent Fixed
 -- ================================================
 
 local Players    = game:GetService("Players")
@@ -91,8 +91,8 @@ local BtnStroke           = Instance.new("UIStroke", ShootBtn)
 BtnStroke.Color           = Color3.fromRGB(255, 60, 60)
 BtnStroke.Thickness       = 1.2
 
--- Drag
 local dragging, dragStart, startPos, wasDragged = false, nil, nil, false
+local UIS = game:GetService("UserInputService")
 
 ShootBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -111,7 +111,7 @@ ShootBtn.InputEnded:Connect(function(input)
     end
 end)
 
-game:GetService("UserInputService").InputChanged:Connect(function(input)
+UIS.InputChanged:Connect(function(input)
     if not dragging then return end
     if input.UserInputType ~= Enum.UserInputType.MouseMovement
     and input.UserInputType ~= Enum.UserInputType.Touch then return end
@@ -281,68 +281,79 @@ ShootBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ================================================
---  FLUENT UI ИНТЕГРАЦИЯ
+--  FLUENT — ПРАВИЛЬНЫЙ СИНТАКСИС
+--  Toggle:  Tab:AddToggle("Key", {Title, Default})
+--           потом toggle:OnChanged(function() Options.Key.Value end)
+--  Slider:  Tab:AddSlider("Key", {Title, Min, Max, Default, Rounding, Callback})
 -- ================================================
 task.spawn(function()
-    -- Ждём пока Fluent и таб Combat загрузятся
-    local Tab
-    for _ = 1, 40 do
-        if _G.Tabs and _G.Tabs.Combat then
-            Tab = _G.Tabs.Combat
+    -- Ждём Options и нужный таб
+    local Tab, Options
+    for _ = 1, 50 do
+        -- YanixHub хранит табы в _G.Tabs
+        if _G.Tabs and _G.Tabs.Combat and _G.Options then
+            Tab     = _G.Tabs.Combat
+            Options = _G.Options
             break
         end
         task.wait(0.2)
     end
+
     if not Tab then
-        warn("Silent Aim: Combat таб не найден")
+        warn("[SilentAim] Таб Combat не найден, проверь _G.Tabs.Combat")
         return
     end
 
-    -- Fluent синтаксис
-    Tab:AddToggle("SilentAim", {
+    -- Silent Aim toggle
+    local tSA = Tab:AddToggle("SA_SilentAim", {
         Title   = "Silent Aim",
         Default = false,
-        Callback = function(v)
-            getgenv().Config.SilentAim = v
-        end
     })
+    tSA:OnChanged(function()
+        getgenv().Config.SilentAim = Options.SA_SilentAim.Value
+    end)
 
-    Tab:AddToggle("ShowDot", {
+    -- Show Dot toggle
+    local tDot = Tab:AddToggle("SA_ShowDot", {
         Title   = "Show Target Dot",
         Default = true,
-        Callback = function(v)
-            getgenv().Config.ShowDot = v
-        end
     })
+    tDot:OnChanged(function()
+        getgenv().Config.ShowDot = Options.SA_ShowDot.Value
+    end)
 
-    Tab:AddToggle("FOVEnabled", {
+    -- FOV Circle toggle
+    local tFOV = Tab:AddToggle("SA_FOVEnabled", {
         Title   = "FOV Circle",
         Default = true,
-        Callback = function(v)
-            getgenv().Config.FOVEnabled = v
-        end
     })
+    tFOV:OnChanged(function()
+        getgenv().Config.FOVEnabled = Options.SA_FOVEnabled.Value
+    end)
 
-    Tab:AddSlider("FOVRadius", {
-        Title   = "FOV Radius",
-        Min     = 50,
-        Max     = 700,
-        Default = 250,
+    -- FOV Radius slider
+    Tab:AddSlider("SA_FOVRadius", {
+        Title    = "FOV Radius",
+        Min      = 50,
+        Max      = 700,
+        Default  = 250,
         Rounding = 0,
         Callback = function(v)
             getgenv().Config.FOVRadius = v
-        end
+        end,
     })
 
-    Tab:AddToggle("Prediction", {
+    -- Prediction toggle
+    local tPred = Tab:AddToggle("SA_Prediction", {
         Title   = "Movement Prediction",
         Default = true,
-        Callback = function(v)
-            getgenv().Config.Prediction = v
-        end
     })
+    tPred:OnChanged(function()
+        getgenv().Config.Prediction = Options.SA_Prediction.Value
+    end)
 
-    Tab:AddSlider("PredictTime", {
+    -- Prediction Strength slider
+    Tab:AddSlider("SA_PredictTime", {
         Title    = "Prediction Strength",
         Min      = 0,
         Max      = 30,
@@ -350,16 +361,17 @@ task.spawn(function()
         Rounding = 0,
         Callback = function(v)
             getgenv().Config.PredictTime = v / 100
-        end
+        end,
     })
 
-    Tab:AddToggle("ShowBtn", {
+    -- Show Button toggle
+    local tBtn = Tab:AddToggle("SA_ShowBtn", {
         Title   = "Show Shoot Button",
         Default = false,
-        Callback = function(v)
-            ShootBtn.Visible = v
-        end
     })
+    tBtn:OnChanged(function()
+        ShootBtn.Visible = Options.SA_ShowBtn.Value
+    end)
 end)
 
 return true
