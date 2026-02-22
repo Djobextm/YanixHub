@@ -291,8 +291,8 @@ task.spawn(function()
     local Tab, Options
     for _ = 1, 50 do
         -- YanixHub хранит табы в _G.Tabs
-        if _G.Tabs and _G.Tabs.Combat and _G.Options then
-            Tab     = _G.Tabs.Combat
+        if _G.Tabs and _G.Tabs.Main and _G.Options then
+            Tab     = _G.Tabs.Main
             Options = _G.Options
             break
         end
