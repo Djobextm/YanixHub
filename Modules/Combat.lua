@@ -1,5 +1,5 @@
 -- ================================================
---  MM2 Silent Aim | Fluent Fixed
+--  MM2 Silent Aim | Final Fixed (Fluent + Main Tab)
 -- ================================================
 
 local Players    = game:GetService("Players")
@@ -281,16 +281,12 @@ ShootBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ================================================
---  FLUENT — ПРАВИЛЬНЫЙ СИНТАКСИС
---  Toggle:  Tab:AddToggle("Key", {Title, Default})
---           потом toggle:OnChanged(function() Options.Key.Value end)
---  Slider:  Tab:AddSlider("Key", {Title, Min, Max, Default, Rounding, Callback})
+--  FLUENT ИНТЕГРАЦИЯ (_G.Tabs.Main)
 -- ================================================
 task.spawn(function()
-    -- Ждём Options и нужный таб
     local Tab, Options
+
     for _ = 1, 50 do
-        -- YanixHub хранит табы в _G.Tabs
         if _G.Tabs and _G.Tabs.Main and _G.Options then
             Tab     = _G.Tabs.Main
             Options = _G.Options
@@ -300,11 +296,10 @@ task.spawn(function()
     end
 
     if not Tab then
-        warn("[SilentAim] Таб Combat не найден, проверь _G.Tabs.Combat")
+        warn("[SilentAim] _G.Tabs.Main не найден!")
         return
     end
 
-    -- Silent Aim toggle
     local tSA = Tab:AddToggle("SA_SilentAim", {
         Title   = "Silent Aim",
         Default = false,
@@ -313,7 +308,6 @@ task.spawn(function()
         getgenv().Config.SilentAim = Options.SA_SilentAim.Value
     end)
 
-    -- Show Dot toggle
     local tDot = Tab:AddToggle("SA_ShowDot", {
         Title   = "Show Target Dot",
         Default = true,
@@ -322,7 +316,6 @@ task.spawn(function()
         getgenv().Config.ShowDot = Options.SA_ShowDot.Value
     end)
 
-    -- FOV Circle toggle
     local tFOV = Tab:AddToggle("SA_FOVEnabled", {
         Title   = "FOV Circle",
         Default = true,
@@ -331,7 +324,6 @@ task.spawn(function()
         getgenv().Config.FOVEnabled = Options.SA_FOVEnabled.Value
     end)
 
-    -- FOV Radius slider
     Tab:AddSlider("SA_FOVRadius", {
         Title    = "FOV Radius",
         Min      = 50,
@@ -343,7 +335,6 @@ task.spawn(function()
         end,
     })
 
-    -- Prediction toggle
     local tPred = Tab:AddToggle("SA_Prediction", {
         Title   = "Movement Prediction",
         Default = true,
@@ -352,7 +343,6 @@ task.spawn(function()
         getgenv().Config.Prediction = Options.SA_Prediction.Value
     end)
 
-    -- Prediction Strength slider
     Tab:AddSlider("SA_PredictTime", {
         Title    = "Prediction Strength",
         Min      = 0,
@@ -364,7 +354,6 @@ task.spawn(function()
         end,
     })
 
-    -- Show Button toggle
     local tBtn = Tab:AddToggle("SA_ShowBtn", {
         Title   = "Show Shoot Button",
         Default = false,
