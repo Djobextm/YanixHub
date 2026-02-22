@@ -1,11 +1,9 @@
 -- ================================================
---  MM2 Silent Aim | Final Stable Version
---  + Wall/Distance bypass + Movement Prediction
+--  MM2 Silent Aim | Full Fix
 -- ================================================
 
 local Players    = game:GetService("Players")
 local RS         = game:GetService("RunService")
-local GuiService = game:GetService("GuiService")
 local VIM        = game:GetService("VirtualInputManager")
 local Camera     = workspace.CurrentCamera
 local LP         = Players.LocalPlayer
@@ -14,20 +12,22 @@ local Mouse      = LP:GetMouse()
 -- ================================================
 --  CONFIG
 -- ================================================
-getgenv().Config = getgenv().Config or {
+getgenv().Config = {
     SilentAim   = false,
     ShowDot     = true,
+    ShowBtn     = false,
     FOVEnabled  = true,
     FOVRadius   = 250,
     Prediction  = true,
-    PredictTime = 0.09,  -- секунд вперёд (подбери под пинг)
+    PredictTime = 0.09,
 }
 
 -- ================================================
---  ОЧИСТКА ПРЕДЫДУЩЕГО ЗАПУСКА
+--  ОЧИСТКА
 -- ================================================
 if getgenv().CombatVisuals then
     pcall(function() getgenv().CombatVisuals:Destroy() end)
+    getgenv().CombatVisuals = nil
 end
 if getgenv().SAConnections then
     for _, c in ipairs(getgenv().SAConnections) do
@@ -39,40 +39,96 @@ getgenv().SAConnections = {}
 -- ================================================
 --  GUI
 -- ================================================
-local Visuals            = Instance.new("ScreenGui")
-Visuals.Name             = "CombatVisuals"
-Visuals.ResetOnSpawn     = false
-Visuals.DisplayOrder     = 999
-Visuals.IgnoreGuiInset   = true
-Visuals.Parent           = game:GetService("CoreGui")
-getgenv().CombatVisuals  = Visuals
+local Visuals           = Instance.new("ScreenGui")
+Visuals.Name            = "CombatVisuals"
+Visuals.ResetOnSpawn    = false
+Visuals.DisplayOrder    = 999
+Visuals.IgnoreGuiInset  = true
+Visuals.Parent          = game:GetService("CoreGui")
+getgenv().CombatVisuals = Visuals
 
--- Красная точка на цели
-local Dot                = Instance.new("Frame", Visuals)
-Dot.Size                 = UDim2.new(0, 12, 0, 12)
-Dot.BackgroundColor3     = Color3.fromRGB(255, 40, 40)
-Dot.Visible              = false
-Dot.AnchorPoint          = Vector2.new(0.5, 0.5)
-Dot.ZIndex               = 100
+-- Dot (кружок на торсе)
+local Dot             = Instance.new("Frame", Visuals)
+Dot.Size              = UDim2.new(0, 12, 0, 12)
+Dot.BackgroundColor3  = Color3.fromRGB(255, 40, 40)
+Dot.Visible           = false
+Dot.AnchorPoint       = Vector2.new(0.5, 0.5)
+Dot.ZIndex            = 100
+Dot.BorderSizePixel   = 0
 Instance.new("UICorner", Dot).CornerRadius = UDim.new(1, 0)
-local DotStroke          = Instance.new("UIStroke", Dot)
-DotStroke.Color          = Color3.new(1, 1, 1)
-DotStroke.Thickness      = 1.5
+local DotStroke       = Instance.new("UIStroke", Dot)
+DotStroke.Color       = Color3.new(1, 1, 1)
+DotStroke.Thickness   = 1.5
 
 -- FOV круг
-local FOVFrame           = Instance.new("Frame", Visuals)
+local FOVFrame        = Instance.new("Frame", Visuals)
 FOVFrame.BackgroundTransparency = 1
-FOVFrame.AnchorPoint     = Vector2.new(0.5, 0.5)
-FOVFrame.ZIndex          = 98
+FOVFrame.AnchorPoint  = Vector2.new(0.5, 0.5)
+FOVFrame.ZIndex       = 98
+FOVFrame.Visible      = false
+FOVFrame.BorderSizePixel = 0
 Instance.new("UICorner", FOVFrame).CornerRadius = UDim.new(1, 0)
-local FOVStroke          = Instance.new("UIStroke", FOVFrame)
-FOVStroke.Color          = Color3.fromRGB(200, 200, 200)
-FOVStroke.Thickness      = 1
+local FOVStroke       = Instance.new("UIStroke", FOVFrame)
+FOVStroke.Color       = Color3.fromRGB(220, 220, 220)
+FOVStroke.Thickness   = 1
 
 -- ================================================
---  PREDICTION (история позиций)
+--  ПЕРЕТАСКИВАЕМАЯ КНОПКА
 -- ================================================
-local PosHistory = {}  -- { [player] = { {pos, time}, ... } }
+local ShootBtn            = Instance.new("TextButton", Visuals)
+ShootBtn.Size             = UDim2.new(0, 180, 0, 50)
+ShootBtn.Position         = UDim2.new(0.5, -90, 0.85, 0)
+ShootBtn.Text             = "🔫  SHOOT"
+ShootBtn.Visible          = false
+ShootBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+ShootBtn.TextColor3       = Color3.fromRGB(255, 60, 60)
+ShootBtn.Font             = Enum.Font.GothamBold
+ShootBtn.TextSize         = 15
+ShootBtn.ZIndex           = 200
+ShootBtn.BorderSizePixel  = 0
+ShootBtn.AutoButtonColor  = false
+Instance.new("UICorner", ShootBtn)
+local BtnStroke           = Instance.new("UIStroke", ShootBtn)
+BtnStroke.Color           = Color3.fromRGB(255, 60, 60)
+BtnStroke.Thickness       = 1.2
+
+-- Drag логика
+local dragging, dragStart, startPos = false, nil, nil
+
+ShootBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging  = true
+        dragStart = input.Position
+        startPos  = ShootBtn.Position
+    end
+end)
+
+ShootBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement
+    and input.UserInputType ~= Enum.UserInputType.Touch then return end
+
+    local delta = input.Position - dragStart
+    ShootBtn.Position = UDim2.new(
+        startPos.X.Scale,
+        startPos.X.Offset + delta.X,
+        startPos.Y.Scale,
+        startPos.Y.Offset + delta.Y
+    )
+end)
+
+-- ================================================
+--  PREDICTION
+-- ================================================
+local PosHistory = {}
 
 local function RecordPositions()
     local now = tick()
@@ -80,30 +136,20 @@ local function RecordPositions()
         if p == LP or not p.Character then continue end
         local hrp = p.Character:FindFirstChild("HumanoidRootPart")
         if not hrp then continue end
-        if not PosHistory[p] then PosHistory[p] = {} end
+        PosHistory[p] = PosHistory[p] or {}
         table.insert(PosHistory[p], { pos = hrp.Position, t = now })
-        -- храним только последние 10 записей
-        if #PosHistory[p] > 10 then
-            table.remove(PosHistory[p], 1)
-        end
+        if #PosHistory[p] > 10 then table.remove(PosHistory[p], 1) end
     end
 end
 
--- Считаем среднюю скорость и предсказываем позицию
-local function PredictPosition(player, torso)
-    local cfg = getgenv().Config
-    if not cfg.Prediction then return torso.Position end
-
+local function PredictPos(player, basePos)
+    if not getgenv().Config.Prediction then return basePos end
     local hist = PosHistory[player]
-    if not hist or #hist < 2 then return torso.Position end
-
-    local oldest = hist[1]
-    local newest = hist[#hist]
-    local dt = newest.t - oldest.t
-    if dt <= 0 then return torso.Position end
-
-    local velocity = (newest.pos - oldest.pos) / dt
-    return torso.Position + velocity * cfg.PredictTime
+    if not hist or #hist < 2 then return basePos end
+    local dt = hist[#hist].t - hist[1].t
+    if dt <= 0 then return basePos end
+    local vel = (hist[#hist].pos - hist[1].pos) / dt
+    return basePos + vel * getgenv().Config.PredictTime
 end
 
 -- ================================================
@@ -130,33 +176,32 @@ local function GetMurderer()
     return nil, nil
 end
 
--- Получить финальную позицию цели (с prediction и FOV проверкой)
-local function GetTargetPosition()
+-- Финальная позиция цели с prediction + FOV
+local function GetAimPos()
     local cfg = getgenv().Config
     local player, torso = GetMurderer()
-    if not torso then return nil, nil end
+    if not player then return nil, nil end
 
-    local predicted = PredictPosition(player, torso)
+    local predicted = PredictPos(player, torso.Position)
 
-    -- FOV проверка (по predicted позиции)
     if cfg.FOVEnabled then
         local sp, onScreen = Camera:WorldToViewportPoint(predicted)
         if not onScreen then return nil, nil end
         local center = Camera.ViewportSize / 2
-        local dist   = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-        if dist > cfg.FOVRadius then return nil, nil end
+        if (Vector2.new(sp.X, sp.Y) - center).Magnitude > cfg.FOVRadius then
+            return nil, nil
+        end
     end
 
     return predicted, torso
 end
 
 -- ================================================
---  RENDER LOOP
+--  RENDER LOOP — DOT СТРОГО НА ТОРСЕ
 -- ================================================
 local renderConn = RS.RenderStepped:Connect(function()
     local cfg = getgenv().Config
 
-    -- Обновляем историю позиций каждый кадр
     RecordPositions()
 
     -- FOV круг
@@ -165,12 +210,13 @@ local renderConn = RS.RenderStepped:Connect(function()
     FOVFrame.Position = UDim2.new(0, vp.X / 2, 0, vp.Y / 2)
     FOVFrame.Visible  = cfg.SilentAim and cfg.FOVEnabled
 
-    -- Точка на цели
+    -- Dot — берём позицию напрямую с торса, без prediction чтобы не скакал
     if cfg.SilentAim and cfg.ShowDot then
-        local predicted, torso = GetTargetPosition()
-        if predicted then
-            local sp, onScreen = Camera:WorldToViewportPoint(predicted)
+        local player, torso = GetMurderer()
+        if torso then
+            local sp, onScreen = Camera:WorldToViewportPoint(torso.Position)
             if onScreen then
+                -- IgnoreGuiInset=true → смещение не нужно
                 Dot.Position = UDim2.new(0, sp.X, 0, sp.Y)
                 Dot.Visible  = true
                 return
@@ -183,6 +229,8 @@ table.insert(getgenv().SAConnections, renderConn)
 
 -- ================================================
 --  МЕТАТАБЛИЦА
+--  Главный фикс: перехватываем ВСЕ ремоуты при выстреле,
+--  а не только ShootGun — MM2 может использовать любой
 -- ================================================
 local mt          = getrawmetatable(game)
 local oldIndex    = mt.__index
@@ -191,14 +239,10 @@ setreadonly(mt, false)
 
 mt.__index = newcclosure(function(self, key)
     if getgenv().Config.SilentAim and not checkcaller() and self == Mouse then
-        local predicted, torso = GetTargetPosition()
-        if predicted and torso then
-            if key == "Hit" then
-                -- CFrame смотрит от камеры на predicted позицию
-                return CFrame.new(predicted)
-            elseif key == "Target" then
-                return torso
-            end
+        local aimPos, torso = GetAimPos()
+        if aimPos and torso then
+            if key == "Hit"    then return CFrame.new(aimPos) end
+            if key == "Target" then return torso end
         end
     end
     return oldIndex(self, key)
@@ -207,22 +251,26 @@ end)
 mt.__namecall = newcclosure(function(self, ...)
     local method = getnamecallmethod()
     local args   = {...}
+    local cfg    = getgenv().Config
 
-    if getgenv().Config.SilentAim and not checkcaller() then
-        -- Прямая подмена точки попадания в сетевом запросе выстрела
-        if method == "InvokeServer" and tostring(self) == "ShootGun" then
-            local predicted, _ = GetTargetPosition()
-            if predicted then
-                args[2] = predicted
-                return oldNamecall(self, table.unpack(args))
-            end
-        end
-
-        -- Подмена FireServer (на случай если игра использует RemoteEvent)
-        if method == "FireServer" and tostring(self) == "ShootGun" then
-            local predicted, _ = GetTargetPosition()
-            if predicted then
-                args[2] = predicted
+    if cfg.SilentAim and not checkcaller() then
+        -- Перехватываем InvokeServer и FireServer у ЛЮБОГО RemoteEvent/Function
+        -- чья первая строка аргумента содержит позицию (Vector3)
+        if method == "InvokeServer" or method == "FireServer" then
+            local aimPos = GetAimPos()
+            if aimPos then
+                -- Ищем Vector3 аргумент и заменяем его на позицию мардера
+                for i, v in ipairs(args) do
+                    if typeof(v) == "Vector3" then
+                        args[i] = aimPos
+                        break
+                    end
+                    -- Если аргумент CFrame — тоже заменяем
+                    if typeof(v) == "CFrame" then
+                        args[i] = CFrame.new(aimPos)
+                        break
+                    end
+                end
                 return oldNamecall(self, table.unpack(args))
             end
         end
@@ -234,32 +282,14 @@ end)
 setreadonly(mt, true)
 
 -- ================================================
---  КНОПКА ВЫСТРЕЛА
+--  ВЫСТРЕЛ
 -- ================================================
-local ShootBtn               = Instance.new("TextButton", Visuals)
-ShootBtn.Size                = UDim2.new(0, 170, 0, 50)
-ShootBtn.Position            = UDim2.new(0.5, -85, 0.75, 0)
-ShootBtn.Text                = "🔫 SHOOT MURDERER"
-ShootBtn.Visible             = false
-ShootBtn.BackgroundColor3    = Color3.fromRGB(18, 18, 18)
-ShootBtn.TextColor3          = Color3.fromRGB(255, 60, 60)
-ShootBtn.Font                = Enum.Font.GothamBold
-ShootBtn.TextSize            = 14
-ShootBtn.AutoButtonColor     = true
-ShootBtn.ZIndex              = 200
-Instance.new("UICorner", ShootBtn)
-local BtnStroke              = Instance.new("UIStroke", ShootBtn)
-BtnStroke.Color              = Color3.fromRGB(255, 60, 60)
-BtnStroke.Thickness          = 1
-
 local function SilentShoot()
     local char = LP.Character
     if not char then return end
-
     local gun = char:FindFirstChild("Gun") or LP.Backpack:FindFirstChild("Gun")
     if not gun then return end
 
-    -- Достать пистолет из рюкзака если нужно
     if gun.Parent == LP.Backpack then
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then
@@ -273,75 +303,51 @@ local function SilentShoot()
     VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
 end
 
-ShootBtn.MouseButton1Click:Connect(SilentShoot)
+ShootBtn.MouseButton1Click:Connect(function()
+    -- Стреляем только если не было перетаскивания
+    if not dragging then
+        SilentShoot()
+    end
+end)
 
 -- ================================================
---  ИНТЕГРАЦИЯ В МЕНЮ
+--  МЕНЮ
 -- ================================================
 task.spawn(function()
     local Tab
     for _ = 1, 25 do
-        if _G.Tabs and _G.Tabs.Main then
-            Tab = _G.Tabs.Main
-            break
-        end
+        if _G.Tabs and _G.Tabs.Main then Tab = _G.Tabs.Main break end
         task.wait(0.2)
     end
     if not Tab then return end
 
     Tab:AddToggle("SilentAim", {
-        Title   = "Silent Aim",
-        Default = false,
-    }):OnChanged(function(v)
-        getgenv().Config.SilentAim = v
-    end)
+        Title = "Silent Aim", Default = false
+    }):OnChanged(function(v) getgenv().Config.SilentAim = v end)
 
     Tab:AddToggle("ShowDot", {
-        Title   = "Show Target Dot",
-        Default = true,
-    }):OnChanged(function(v)
-        getgenv().Config.ShowDot = v
-    end)
+        Title = "Show Target Dot", Default = true
+    }):OnChanged(function(v) getgenv().Config.ShowDot = v end)
 
     Tab:AddToggle("FOVEnabled", {
-        Title   = "FOV Circle",
-        Default = true,
-    }):OnChanged(function(v)
-        getgenv().Config.FOVEnabled = v
-    end)
+        Title = "FOV Circle", Default = true
+    }):OnChanged(function(v) getgenv().Config.FOVEnabled = v end)
 
     Tab:AddSlider("FOVRadius", {
-        Title   = "FOV Radius",
-        Min     = 50,
-        Max     = 700,
-        Default = 250,
-    }):OnChanged(function(v)
-        getgenv().Config.FOVRadius = v
-    end)
+        Title = "FOV Radius", Min = 50, Max = 700, Default = 250
+    }):OnChanged(function(v) getgenv().Config.FOVRadius = v end)
 
     Tab:AddToggle("Prediction", {
-        Title   = "Movement Prediction",
-        Default = true,
-    }):OnChanged(function(v)
-        getgenv().Config.Prediction = v
-    end)
+        Title = "Movement Prediction", Default = true
+    }):OnChanged(function(v) getgenv().Config.Prediction = v end)
 
     Tab:AddSlider("PredictTime", {
-        Title   = "Prediction Strength",
-        Min     = 0,
-        Max     = 30,
-        Default = 9,
-    }):OnChanged(function(v)
-        -- слайдер 0–30 → реальное значение 0.00–0.30
-        getgenv().Config.PredictTime = v / 100
-    end)
+        Title = "Prediction Strength", Min = 0, Max = 30, Default = 9
+    }):OnChanged(function(v) getgenv().Config.PredictTime = v / 100 end)
 
     Tab:AddToggle("ShowBtn", {
-        Title   = "Show Shoot Button",
-        Default = false,
-    }):OnChanged(function(v)
-        ShootBtn.Visible = v
-    end)
+        Title = "Show Shoot Button", Default = false
+    }):OnChanged(function(v) ShootBtn.Visible = v end)
 end)
 
 return true
