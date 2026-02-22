@@ -1,5 +1,5 @@
 -- ================================================
---  MM2 Silent Aim | Full Fix
+--  MM2 Silent Aim | Fluent UI Fix
 -- ================================================
 
 local Players    = game:GetService("Players")
@@ -47,7 +47,7 @@ Visuals.IgnoreGuiInset  = true
 Visuals.Parent          = game:GetService("CoreGui")
 getgenv().CombatVisuals = Visuals
 
--- Dot (кружок на торсе)
+-- Dot
 local Dot             = Instance.new("Frame", Visuals)
 Dot.Size              = UDim2.new(0, 12, 0, 12)
 Dot.BackgroundColor3  = Color3.fromRGB(255, 40, 40)
@@ -86,27 +86,27 @@ ShootBtn.Font             = Enum.Font.GothamBold
 ShootBtn.TextSize         = 15
 ShootBtn.ZIndex           = 200
 ShootBtn.BorderSizePixel  = 0
-ShootBtn.AutoButtonColor  = false
 Instance.new("UICorner", ShootBtn)
 local BtnStroke           = Instance.new("UIStroke", ShootBtn)
 BtnStroke.Color           = Color3.fromRGB(255, 60, 60)
 BtnStroke.Thickness       = 1.2
 
--- Drag логика
-local dragging, dragStart, startPos = false, nil, nil
+-- Drag
+local dragging, dragStart, startPos, wasDragged = false, nil, nil, false
 
 ShootBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch
-    or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging  = true
-        dragStart = input.Position
-        startPos  = ShootBtn.Position
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        dragging   = true
+        wasDragged = false
+        dragStart  = input.Position
+        startPos   = ShootBtn.Position
     end
 end)
 
 ShootBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch
-    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
         dragging = false
     end
 end)
@@ -115,13 +115,11 @@ game:GetService("UserInputService").InputChanged:Connect(function(input)
     if not dragging then return end
     if input.UserInputType ~= Enum.UserInputType.MouseMovement
     and input.UserInputType ~= Enum.UserInputType.Touch then return end
-
     local delta = input.Position - dragStart
+    if delta.Magnitude > 5 then wasDragged = true end
     ShootBtn.Position = UDim2.new(
-        startPos.X.Scale,
-        startPos.X.Offset + delta.X,
-        startPos.Y.Scale,
-        startPos.Y.Offset + delta.Y
+        startPos.X.Scale, startPos.X.Offset + delta.X,
+        startPos.Y.Scale, startPos.Y.Offset + delta.Y
     )
 end)
 
@@ -158,32 +156,25 @@ end
 local function GetMurderer()
     for _, p in ipairs(Players:GetPlayers()) do
         if p == LP or not p.Character then continue end
-
         local hasKnife = p.Character:FindFirstChild("Knife")
                       or p.Backpack:FindFirstChild("Knife")
         if not hasKnife then continue end
-
         local hum = p.Character:FindFirstChildOfClass("Humanoid")
         if not hum or hum.Health <= 0 then continue end
-
         local torso = p.Character:FindFirstChild("UpperTorso")
                    or p.Character:FindFirstChild("Torso")
                    or p.Character:FindFirstChild("HumanoidRootPart")
         if not torso then continue end
-
         return p, torso
     end
     return nil, nil
 end
 
--- Финальная позиция цели с prediction + FOV
 local function GetAimPos()
     local cfg = getgenv().Config
     local player, torso = GetMurderer()
     if not player then return nil, nil end
-
     local predicted = PredictPos(player, torso.Position)
-
     if cfg.FOVEnabled then
         local sp, onScreen = Camera:WorldToViewportPoint(predicted)
         if not onScreen then return nil, nil end
@@ -192,31 +183,26 @@ local function GetAimPos()
             return nil, nil
         end
     end
-
     return predicted, torso
 end
 
 -- ================================================
---  RENDER LOOP — DOT СТРОГО НА ТОРСЕ
+--  RENDER LOOP
 -- ================================================
 local renderConn = RS.RenderStepped:Connect(function()
     local cfg = getgenv().Config
-
     RecordPositions()
 
-    -- FOV круг
     local vp = Camera.ViewportSize
     FOVFrame.Size     = UDim2.new(0, cfg.FOVRadius * 2, 0, cfg.FOVRadius * 2)
     FOVFrame.Position = UDim2.new(0, vp.X / 2, 0, vp.Y / 2)
     FOVFrame.Visible  = cfg.SilentAim and cfg.FOVEnabled
 
-    -- Dot — берём позицию напрямую с торса, без prediction чтобы не скакал
     if cfg.SilentAim and cfg.ShowDot then
-        local player, torso = GetMurderer()
+        local _, torso = GetMurderer()
         if torso then
             local sp, onScreen = Camera:WorldToViewportPoint(torso.Position)
             if onScreen then
-                -- IgnoreGuiInset=true → смещение не нужно
                 Dot.Position = UDim2.new(0, sp.X, 0, sp.Y)
                 Dot.Visible  = true
                 return
@@ -229,8 +215,6 @@ table.insert(getgenv().SAConnections, renderConn)
 
 -- ================================================
 --  МЕТАТАБЛИЦА
---  Главный фикс: перехватываем ВСЕ ремоуты при выстреле,
---  а не только ShootGun — MM2 может использовать любой
 -- ================================================
 local mt          = getrawmetatable(game)
 local oldIndex    = mt.__index
@@ -251,22 +235,16 @@ end)
 mt.__namecall = newcclosure(function(self, ...)
     local method = getnamecallmethod()
     local args   = {...}
-    local cfg    = getgenv().Config
 
-    if cfg.SilentAim and not checkcaller() then
-        -- Перехватываем InvokeServer и FireServer у ЛЮБОГО RemoteEvent/Function
-        -- чья первая строка аргумента содержит позицию (Vector3)
+    if getgenv().Config.SilentAim and not checkcaller() then
         if method == "InvokeServer" or method == "FireServer" then
             local aimPos = GetAimPos()
             if aimPos then
-                -- Ищем Vector3 аргумент и заменяем его на позицию мардера
                 for i, v in ipairs(args) do
                     if typeof(v) == "Vector3" then
                         args[i] = aimPos
                         break
-                    end
-                    -- Если аргумент CFrame — тоже заменяем
-                    if typeof(v) == "CFrame" then
+                    elseif typeof(v) == "CFrame" then
                         args[i] = CFrame.new(aimPos)
                         break
                     end
@@ -289,65 +267,99 @@ local function SilentShoot()
     if not char then return end
     local gun = char:FindFirstChild("Gun") or LP.Backpack:FindFirstChild("Gun")
     if not gun then return end
-
     if gun.Parent == LP.Backpack then
         local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum:EquipTool(gun)
-            task.wait(0.3)
-        end
+        if hum then hum:EquipTool(gun) task.wait(0.3) end
     end
-
     VIM:SendMouseButtonEvent(0, 0, 0, true,  game, 0)
     task.wait(0.06)
     VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
 end
 
 ShootBtn.MouseButton1Click:Connect(function()
-    -- Стреляем только если не было перетаскивания
-    if not dragging then
-        SilentShoot()
-    end
+    if not wasDragged then SilentShoot() end
 end)
 
 -- ================================================
---  МЕНЮ
+--  FLUENT UI ИНТЕГРАЦИЯ
 -- ================================================
 task.spawn(function()
+    -- Ждём пока Fluent и таб Combat загрузятся
     local Tab
-    for _ = 1, 25 do
-        if _G.Tabs and _G.Tabs.Main then Tab = _G.Tabs.Main break end
+    for _ = 1, 40 do
+        if _G.Tabs and _G.Tabs.Combat then
+            Tab = _G.Tabs.Combat
+            break
+        end
         task.wait(0.2)
     end
-    if not Tab then return end
+    if not Tab then
+        warn("Silent Aim: Combat таб не найден")
+        return
+    end
 
+    -- Fluent синтаксис
     Tab:AddToggle("SilentAim", {
-        Title = "Silent Aim", Default = false
-    }):OnChanged(function(v) getgenv().Config.SilentAim = v end)
+        Title   = "Silent Aim",
+        Default = false,
+        Callback = function(v)
+            getgenv().Config.SilentAim = v
+        end
+    })
 
     Tab:AddToggle("ShowDot", {
-        Title = "Show Target Dot", Default = true
-    }):OnChanged(function(v) getgenv().Config.ShowDot = v end)
+        Title   = "Show Target Dot",
+        Default = true,
+        Callback = function(v)
+            getgenv().Config.ShowDot = v
+        end
+    })
 
     Tab:AddToggle("FOVEnabled", {
-        Title = "FOV Circle", Default = true
-    }):OnChanged(function(v) getgenv().Config.FOVEnabled = v end)
+        Title   = "FOV Circle",
+        Default = true,
+        Callback = function(v)
+            getgenv().Config.FOVEnabled = v
+        end
+    })
 
     Tab:AddSlider("FOVRadius", {
-        Title = "FOV Radius", Min = 50, Max = 700, Default = 250
-    }):OnChanged(function(v) getgenv().Config.FOVRadius = v end)
+        Title   = "FOV Radius",
+        Min     = 50,
+        Max     = 700,
+        Default = 250,
+        Rounding = 0,
+        Callback = function(v)
+            getgenv().Config.FOVRadius = v
+        end
+    })
 
     Tab:AddToggle("Prediction", {
-        Title = "Movement Prediction", Default = true
-    }):OnChanged(function(v) getgenv().Config.Prediction = v end)
+        Title   = "Movement Prediction",
+        Default = true,
+        Callback = function(v)
+            getgenv().Config.Prediction = v
+        end
+    })
 
     Tab:AddSlider("PredictTime", {
-        Title = "Prediction Strength", Min = 0, Max = 30, Default = 9
-    }):OnChanged(function(v) getgenv().Config.PredictTime = v / 100 end)
+        Title    = "Prediction Strength",
+        Min      = 0,
+        Max      = 30,
+        Default  = 9,
+        Rounding = 0,
+        Callback = function(v)
+            getgenv().Config.PredictTime = v / 100
+        end
+    })
 
     Tab:AddToggle("ShowBtn", {
-        Title = "Show Shoot Button", Default = false
-    }):OnChanged(function(v) ShootBtn.Visible = v end)
+        Title   = "Show Shoot Button",
+        Default = false,
+        Callback = function(v)
+            ShootBtn.Visible = v
+        end
+    })
 end)
 
 return true
