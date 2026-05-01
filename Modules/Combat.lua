@@ -14,6 +14,11 @@ getgenv().Config = {
     FOVRadius   = 250,
     Prediction  = true,
     PredictTime = 0.09,
+    AimSmoothing = true,
+    SmoothingAmount = 0.5,
+    TargetPart = "Head",
+    VisibilityCheck = true,
+    MaxDistance = 10000,
 }
 
 -- ОЧИСТКА
@@ -118,6 +123,28 @@ local function PredictPos(player, basePos)
     return basePos + vel * getgenv().Config.PredictTime
 end
 
+-- ПРОВЕРКА ВИДИМОСТИ
+local function IsTargetVisible(targetPos)
+    if not getgenv().Config.VisibilityCheck then return true end
+    local rayOrigin = Camera.CFrame.Position
+    local rayDirection = (targetPos - rayOrigin).Unit
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.FilterDescendantsInstances = {LP.Character}
+    
+    local result = workspace:Raycast(rayOrigin, rayDirection * 1000, raycastParams)
+    if not result then return true end
+    
+    local hit = result.Instance
+    local humanoid = hit:FindFirstChildOfClass("Humanoid")
+    if humanoid then return true end
+    
+    local parent = hit.Parent
+    if parent and parent:FindFirstChildOfClass("Humanoid") then return true end
+    
+    return false
+end
+
 -- ПОИСК МАРДЕРА
 local function GetMurderer()
     for _, p in ipairs(Players:GetPlayers()) do
@@ -125,10 +152,16 @@ local function GetMurderer()
         if p.Character:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife") then
             local hum = p.Character:FindFirstChildOfClass("Humanoid")
             if hum and hum.Health > 0 then
-                local torso = p.Character:FindFirstChild("UpperTorso")
-                           or p.Character:FindFirstChild("Torso")
-                           or p.Character:FindFirstChild("HumanoidRootPart")
-                if torso then return p, torso end
+                local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                if hrp and (hrp.Position - LP.Character.HumanoidRootPart.Position).Magnitude <= getgenv().Config.MaxDistance then
+                    local targetPart = p.Character:FindFirstChild(getgenv().Config.TargetPart)
+                    if not targetPart then
+                        targetPart = p.Character:FindFirstChild("UpperTorso")
+                                  or p.Character:FindFirstChild("Torso")
+                                  or hrp
+                    end
+                    if targetPart then return p, targetPart end
+                end
             end
         end
     end
@@ -138,9 +171,12 @@ end
 local function GetAimPos()
     local cfg = getgenv().Config
     if not cfg.SilentAim then return nil, nil end
-    local player, torso = GetMurderer()
-    if not player or not torso then return nil, nil end
-    local predicted = PredictPos(player, torso.Position)
+    local player, targetPart = GetMurderer()
+    if not player or not targetPart then return nil, nil end
+    
+    if not IsTargetVisible(targetPart.Position) then return nil, nil end
+    
+    local predicted = PredictPos(player, targetPart.Position)
     if cfg.FOVEnabled then
         local sp, onScreen = Camera:WorldToViewportPoint(predicted)
         if not onScreen then return nil, nil end
@@ -149,7 +185,7 @@ local function GetAimPos()
         local dy = sp.Y - vp.Y / 2
         if (dx*dx + dy*dy) > cfg.FOVRadius * cfg.FOVRadius then return nil, nil end
     end
-    return predicted, torso
+    return predicted, targetPart
 end
 
 -- RENDER LOOP
@@ -165,9 +201,9 @@ RS.RenderStepped:Connect(function()
     FOVFrame.Visible = cfg.SilentAim and cfg.FOVEnabled
 
     if cfg.SilentAim and cfg.ShowDot then
-        local _, torso = GetMurderer()
-        if torso and torso.Parent then
-            local sp, onScreen = Camera:WorldToViewportPoint(torso.Position)
+        local _, targetPart = GetMurderer()
+        if targetPart and targetPart.Parent then
+            local sp, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
             if onScreen then
                 local inset = game:GetService("GuiService"):GetGuiInset()
                 Dot.Position = UDim2.new(0, sp.X, 0, sp.Y - inset.Y)
@@ -187,10 +223,10 @@ setreadonly(mt, false)
 
 mt.__index = newcclosure(function(self, key)
     if self and getgenv().Config.SilentAim and not checkcaller() and self == Mouse then
-        local aimPos, torso = GetAimPos()
-        if aimPos and torso then
+        local aimPos, targetPart = GetAimPos()
+        if aimPos and targetPart then
             if key == "Hit" then return CFrame.new(aimPos) end
-            if key == "Target" then return torso end
+            if key == "Target" then return targetPart end
         end
     end
     return oldIndex(self, key)
@@ -239,7 +275,7 @@ ShootBtn.MouseButton1Click:Connect(function()
     if not wasDragged then SilentShoot() end
 end)
 
--- UI (рабочий синтаксис как в оригинале)
+-- UI
 local Tab = nil
 for i = 1, 20 do
     if _G.Tabs and _G.Tabs.Main then Tab = _G.Tabs.Main break end
@@ -264,6 +300,19 @@ if Tab then
 
     Tab:AddSlider("PredictTime", {Title = "Prediction Strength", Min = 0, Max = 30, Default = 9, Rounding = 0})
         :OnChanged(function(v) getgenv().Config.PredictTime = v / 100 end)
+
+    Tab:AddToggle("VisibilityCheck", {Title = "Visibility Check", Default = true})
+        :OnChanged(function(v) getgenv().Config.VisibilityCheck = v end)
+
+    Tab:AddSlider("MaxDistance", {Title = "Max Distance", Min = 100, Max = 10000, Default = 10000, Rounding = 0})
+        :OnChanged(function(v) getgenv().Config.MaxDistance = v end)
+
+    Tab:AddDropdown("TargetPart", {
+        Title = "Target Part",
+        Values = {"Head", "UpperTorso", "Torso"},
+        Multi = false,
+        Default = "Head",
+    }):OnChanged(function(v) getgenv().Config.TargetPart = v end)
 
     Tab:AddToggle("ShowBtn", {Title = "Show Shoot Button", Default = false})
         :OnChanged(function(v) ShootBtn.Visible = v end)
